@@ -1,0 +1,306 @@
+services:
+  # ── Infrastructure ────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-career_navigator}
+      POSTGRES_USER: ${POSTGRES_USER:-career_navigator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-career_navigator}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    ports:
+      - "9002:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  # ── Business services ─────────────────────────────────────────────────────
+  auth-service:
+    build:
+      context: services/auth-service
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_TTL_MINUTES: 10080
+      REFRESH_TOKEN_TTL_DAYS: 14
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  profile-service:
+    build:
+      context: services/profile-service
+    ports:
+      - "8002:8002"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      JWT_ALGORITHM: HS256
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  source-service:
+    build:
+      context: services/source-service
+    ports:
+      - "8003:8003"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      JWT_ALGORITHM: HS256
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  vacancy-service:
+    build:
+      context: services/vacancy-service
+    ports:
+      - "8004:8004"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      JWT_ALGORITHM: HS256
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ml-service:
+    build:
+      context: services/ml-service
+    ports:
+      - "8006:8006"
+    environment:
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change_me_internal_token}
+      WEIGHT_SKILLS: "0.50"
+      WEIGHT_LOCATION: "0.20"
+      WEIGHT_SALARY: "0.15"
+      WEIGHT_SENIORITY: "0.15"
+    restart: unless-stopped
+
+  recommendation-service:
+    build:
+      context: services/recommendation-service
+    ports:
+      - "8005:8005"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      JWT_ALGORITHM: HS256
+      PROFILE_SERVICE_URL: http://profile-service:8002
+      VACANCY_SERVICE_URL: http://vacancy-service:8004
+      ML_SERVICE_URL: http://ml-service:8006
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change_me_internal_token}
+      VACANCY_FETCH_LIMIT: "300"
+      TOP_N_STORE: "50"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml-service:
+        condition: service_started
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: services/api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8001
+      PROFILE_SERVICE_URL: http://profile-service:8002
+      SOURCE_SERVICE_URL: http://source-service:8003
+      VACANCY_SERVICE_URL: http://vacancy-service:8004
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:8005
+      ML_SERVICE_URL: http://ml-service:8006
+      ASSESSMENT_SERVICE_URL: http://assessment-service:8007
+      NOTIFICATION_SERVICE_URL: http://notification-service:8008
+      ANALYTICS_SERVICE_URL: http://analytics-service:8011
+      ADMIN_SERVICE_URL: http://admin-service:8010
+      RATE_LIMIT_REQUESTS: "100"
+      RATE_LIMIT_WINDOW_SECONDS: "60"
+    depends_on:
+      - auth-service
+      - profile-service
+    restart: unless-stopped
+
+  admin-service:
+    build:
+      context: services/admin-service
+    ports:
+      - "8010:8010"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      JWT_ALGORITHM: HS256
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change_me_internal_token}
+      AUTH_SERVICE_URL: http://auth-service:8001
+      PROFILE_SERVICE_URL: http://profile-service:8002
+      SOURCE_SERVICE_URL: http://source-service:8003
+      VACANCY_SERVICE_URL: http://vacancy-service:8004
+      ASSESSMENT_SERVICE_URL: http://assessment-service:8007
+      NOTIFICATION_SERVICE_URL: http://notification-service:8008
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  analytics-service:
+    build:
+      context: services/analytics-service
+    ports:
+      - "8011:8011"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      JWT_ALGORITHM: HS256
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change_me_internal_token}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  bot-service:
+    build:
+      context: services/bot-service
+    ports:
+      - "8009:8009"
+    env_file:
+      - .env
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      # Явно "polling" — иначе в контейнер может попасть строка "${BOT_MODE:-polling}" и polling не запустится
+      BOT_MODE: polling
+      WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL:-}
+      WEBHOOK_PATH: /bot/webhook
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change_me_internal_token}
+      AUTH_SERVICE_URL: http://auth-service:8001
+      PROFILE_SERVICE_URL: http://profile-service:8002
+      VACANCY_SERVICE_URL: http://vacancy-service:8004
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:8005
+      ASSESSMENT_SERVICE_URL: http://assessment-service:8007
+      NOTIFICATION_SERVICE_URL: http://notification-service:8008
+    depends_on:
+      - auth-service
+      - profile-service
+      - vacancy-service
+      - recommendation-service
+      - assessment-service
+      - notification-service
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: services/notification-service
+    ports:
+      - "8008:8008"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      JWT_ALGORITHM: HS256
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change_me_internal_token}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_NAME: "Career Navigator"
+      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-no-reply@career-navigator.local}
+      SMTP_USE_TLS: "true"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      MAX_DELIVERY_ATTEMPTS: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  assessment-service:
+    build:
+      context: services/assessment-service
+    ports:
+      - "8007:8007"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      JWT_ALGORITHM: HS256
+      MAX_ATTEMPTS_PER_ASSESSMENT: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ingestion-worker:
+    build:
+      context: workers/ingestion-workers
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
+      REDIS_URL: redis://redis:6379/0
+      INTERNAL_JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
+      VACANCY_SERVICE_URL: http://vacancy-service:8004
+      SOURCE_SERVICE_URL: http://source-service:8003
+      FETCH_PAGES_PER_RUN: 5
+      DEDUP_SIMILARITY_THRESHOLD: "0.85"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  clickhouse-data:
+  minio-data:

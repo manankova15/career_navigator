@@ -1,0 +1,60 @@
+.DS_Store
+.idea/
+.vscode/
+.cursor/
+.cursorrules
+AGENTS.md
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.db
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# Logs and runtime artifacts
+*.log
+logs/
+tmp/
+data/
+exports/
+models/
+backups/
+
+# Docker
+*.pid
+.docker/
+
+# Generated analytics or ML artifacts
+*.parquet
+*.feather
+*.joblib
+*.pkl
+*.onnx
+
+# Локальные/личные README (в репозиторий только корневой README.md)
+infra/docker/README.md
+docs/api-spec/README.md
+
+# Telegram client session (секреты)
+scripts/.tg_session.session
+*.session
+plans/

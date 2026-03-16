@@ -1,0 +1,126 @@
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
+
+from ..crud import (
+    expire_vacancies,
+    get_unprocessed_raw,
+    get_vacancy,
+    ingest_raw,
+    mark_raw_processed,
+    search_vacancies,
+    truncate_all_vacancies,
+    upsert_canonical,
+)
+from ..database import get_db
+from ..deps import require_admin
+from ..schemas import (
+    CanonicalVacancyIn,
+    CanonicalVacancyOut,
+    RawVacancyIn,
+    RawVacancyOut,
+    VacancyPage,
+    VacancySearchParams,
+)
+
+router = APIRouter(tags=["vacancies"])
+
+
+# ── Public search ────────────────────────────────────────────────────────────
+
+@router.get("/vacancies", response_model=VacancyPage)
+async def search(
+    q: str | None = Query(None, description="Full-text query"),
+    location: str | None = Query(None),
+    seniority: str | None = Query(None),
+    salary_from: int | None = Query(None, ge=0),
+    skills: list[str] = Query(default=[]),
+    source_id: UUID | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    params = VacancySearchParams(
+        q=q or None,
+        location=location or None,
+        seniority=seniority or None,
+        salary_from=salary_from,
+        skills=skills,
+        source_id=source_id,
+        page=page,
+        page_size=page_size,
+    )
+    items, total, pages = search_vacancies(db, params)
+    return VacancyPage(items=items, total=total, page=page, page_size=page_size, pages=pages)
+
+
+@router.get("/vacancies/{vacancy_id}", response_model=CanonicalVacancyOut)
+async def get_by_id(vacancy_id: UUID, db: Session = Depends(get_db)):
+    vacancy = get_vacancy(db, vacancy_id)
+    if not vacancy:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found")
+    return vacancy
+
+
+# ── Internal ingestion endpoints (called by ingestion-worker) ───────────────
+
+@router.post("/internal/raw", response_model=RawVacancyOut, status_code=status.HTTP_201_CREATED)
+async def ingest_raw_vacancy(
+    data: RawVacancyIn,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    raw, _ = ingest_raw(db, data)
+    return raw
+
+
+@router.get("/internal/raw/unprocessed", response_model=list[RawVacancyOut])
+async def list_unprocessed(
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    return get_unprocessed_raw(db, limit=limit)
+
+
+@router.post(
+    "/internal/canonical",
+    response_model=CanonicalVacancyOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upsert_canonical_vacancy(
+    data: CanonicalVacancyIn,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    vacancy, _ = upsert_canonical(db, data)
+    return vacancy
+
+
+@router.post("/internal/raw/{raw_id}/mark-processed", status_code=status.HTTP_204_NO_CONTENT)
+async def mark_processed(
+    raw_id: UUID,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    mark_raw_processed(db, raw_id)
+
+
+@router.post("/internal/expire", tags=["admin"])
+async def run_expiry(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    count = expire_vacancies(db)
+    return {"expired": count}
+
+
+@router.post("/internal/truncate", tags=["admin"])
+async def truncate_vacancies(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    """Delete all raw and canonical vacancies (for full re-seed)."""
+    raw_deleted, canonical_deleted = truncate_all_vacancies(db)
+    return {"raw_deleted": raw_deleted, "canonical_deleted": canonical_deleted}

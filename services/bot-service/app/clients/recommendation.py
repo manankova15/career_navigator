@@ -1,0 +1,37 @@
+"""Client for recommendation-service."""
+from __future__ import annotations
+
+from ..config import settings
+from .base import get_json, post_json
+
+
+async def get_my_recommendations(token: str, page_size: int = 5) -> dict | None:
+    try:
+        return await get_json(
+            f"{settings.recommendation_service_url}/recommendations/me",
+            token,
+            params={"page_size": page_size},
+        )
+    except Exception:
+        return None
+
+
+async def refresh_recommendations(token: str) -> dict | None:
+    try:
+        return await post_json(
+            f"{settings.recommendation_service_url}/recommendations/refresh",
+            token,
+            body={},
+        )
+    except Exception:
+        return None
+
+
+async def get_skill_gap(token: str) -> dict | None:
+    try:
+        return await get_json(
+            f"{settings.recommendation_service_url}/recommendations/skill-gap",
+            token,
+        )
+    except Exception:
+        return None
