@@ -7,7 +7,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 
 from .checker import (
     CheckResult,
@@ -136,30 +137,84 @@ def delete_assessment(db: Session, assessment_id: UUID) -> bool:
 
 # ── Attempts ──────────────────────────────────────────────────────────────────
 
+def start_attempt(db: Session, user_id: UUID, assessment: Assessment) -> AssessmentAttempt:
+    """Create an in-progress attempt so the user can save and resume later."""
+    attempt = AssessmentAttempt(
+        user_id=user_id,
+        assessment_id=assessment.id,
+        status="in_progress",
+        progress_answers=[],
+    )
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+    return attempt
+
+
+def save_attempt_progress(
+    db: Session,
+    attempt_id: UUID,
+    user_id: UUID,
+    progress_answers: list[dict],
+) -> AssessmentAttempt | None:
+    """Save partial answers for an in-progress attempt."""
+    attempt = get_attempt(db, attempt_id)
+    if not attempt or attempt.user_id != user_id or attempt.status != "in_progress":
+        return None
+    attempt.progress_answers = progress_answers
+    db.commit()
+    db.refresh(attempt)
+    return attempt
+
+
+def get_in_progress_attempt(
+    db: Session, user_id: UUID, assessment_id: UUID
+) -> AssessmentAttempt | None:
+    return (
+        db.query(AssessmentAttempt)
+        .filter(
+            AssessmentAttempt.user_id == user_id,
+            AssessmentAttempt.assessment_id == assessment_id,
+            AssessmentAttempt.status == "in_progress",
+        )
+        .order_by(AssessmentAttempt.created_at.desc())
+        .first()
+    )
+
+
 def submit_attempt(
     db: Session,
     user_id: UUID,
     assessment: Assessment,
     answers_in: list[AnswerIn],
+    existing_attempt: AssessmentAttempt | None = None,
 ) -> AssessmentAttempt:
     """
     Core flow:
-      1. Look up each item by id within this assessment.
-      2. Run the auto-check engine for each answer.
-      3. Persist attempt + answers.
-      4. Compute aggregate scores and weak skills.
-      5. Generate and persist feedback.
+      1. Use existing in_progress attempt if given, else create new.
+      2. Look up each item by id within this assessment.
+      3. Run the auto-check engine for each answer.
+      4. Persist attempt + answers.
+      5. Compute aggregate scores and weak skills.
+      6. Generate and persist feedback.
     """
     items_by_id: dict[UUID, AssessmentItem] = {item.id: item for item in assessment.items}
 
-    attempt = AssessmentAttempt(
-        user_id=user_id,
-        assessment_id=assessment.id,
-        status="completed",
-        completed_at=datetime.utcnow(),
-    )
-    db.add(attempt)
-    db.flush()
+    if existing_attempt and existing_attempt.status == "in_progress":
+        attempt = existing_attempt
+        attempt.status = "completed"
+        attempt.completed_at = datetime.utcnow()
+        attempt.progress_answers = []
+        db.flush()
+    else:
+        attempt = AssessmentAttempt(
+            user_id=user_id,
+            assessment_id=assessment.id,
+            status="completed",
+            completed_at=datetime.utcnow(),
+        )
+        db.add(attempt)
+        db.flush()
 
     total_earned = 0.0
     total_max = 0.0
@@ -255,10 +310,13 @@ def list_user_attempts(
     assessment_id: UUID | None = None,
     offset: int = 0,
     limit: int = 20,
+    load_assessment: bool = False,
 ) -> tuple[list[AssessmentAttempt], int]:
     q = db.query(AssessmentAttempt).filter(AssessmentAttempt.user_id == user_id)
     if assessment_id:
         q = q.filter(AssessmentAttempt.assessment_id == assessment_id)
+    if load_assessment:
+        q = q.options(joinedload(AssessmentAttempt.assessment))
     total = q.count()
     items = q.order_by(AssessmentAttempt.created_at.desc()).offset(offset).limit(limit).all()
     return items, total
@@ -287,3 +345,23 @@ def get_feedback_by_attempt(
         .filter(AssessmentFeedback.attempt_id == attempt_id)
         .first()
     )
+
+
+def admin_attempt_stats(db: Session) -> dict:
+    """Завершённые попытки тестов (status == completed)."""
+    completed = (
+        db.query(func.count(AssessmentAttempt.id))
+        .filter(AssessmentAttempt.status == "completed")
+        .scalar()
+        or 0
+    )
+    users_with_completed = (
+        db.query(func.count(func.distinct(AssessmentAttempt.user_id)))
+        .filter(AssessmentAttempt.status == "completed")
+        .scalar()
+        or 0
+    )
+    return {
+        "completed_attempts": int(completed),
+        "users_with_completed_attempts": int(users_with_completed),
+    }

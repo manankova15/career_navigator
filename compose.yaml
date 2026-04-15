@@ -78,6 +78,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
       JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
       JWT_ALGORITHM: HS256
+      RESUME_STORAGE_DIR: /app/storage/resumes
+    volumes:
+      - profile-resume-files:/app/storage/resumes
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,8 +95,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-career_navigator}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-career_navigator}
       JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
       JWT_ALGORITHM: HS256
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -122,6 +128,9 @@ services:
       WEIGHT_LOCATION: "0.20"
       WEIGHT_SALARY: "0.15"
       WEIGHT_SENIORITY: "0.15"
+      MODEL_DIR: /models
+    volumes:
+      - ml-models:/models
     restart: unless-stopped
 
   recommendation-service:
@@ -139,6 +148,9 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change_me_internal_token}
       VACANCY_FETCH_LIMIT: "300"
       TOP_N_STORE: "50"
+      ENABLE_SCHEDULED_REFRESH: "true"
+      REFRESH_INTERVAL_HOURS: "1"
+      MAX_USERS_PER_REFRESH: "300"
     depends_on:
       postgres:
         condition: service_healthy
@@ -268,6 +280,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret}
       JWT_ALGORITHM: HS256
       MAX_ATTEMPTS_PER_ASSESSMENT: "0"
+      ANALYTICS_SERVICE_URL: http://analytics-service:8011
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change_me_internal_token}
     depends_on:
       postgres:
         condition: service_healthy
@@ -284,6 +298,15 @@ services:
       SOURCE_SERVICE_URL: http://source-service:8003
       FETCH_PAGES_PER_RUN: 5
       DEDUP_SIMILARITY_THRESHOLD: "0.85"
+      SYNC_DEFAULT_MAX_VACANCIES: "200"
+      SYNC_MAX_VACANCIES_CAP: "5000"
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_SESSION_FILE: /data/.tg_session
+      TELEGRAM_BATCH_SIZE: "100"
+      TELEGRAM_REQUEST_DELAY_SECONDS: "1.5"
+    volumes:
+      - tg-ingest-session:/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -294,8 +317,21 @@ services:
   frontend:
     build:
       context: frontend
+      args:
+        VITE_API_URL: /api
     ports:
       - "3000:80"
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+  admin-frontend:
+    build:
+      context: admin-frontend
+      args:
+        VITE_API_URL: /api
+    ports:
+      - "3001:80"
     depends_on:
       - api-gateway
     restart: unless-stopped
@@ -304,3 +340,6 @@ volumes:
   postgres-data:
   clickhouse-data:
   minio-data:
+  ml-models:
+  profile-resume-files:
+  tg-ingest-session:

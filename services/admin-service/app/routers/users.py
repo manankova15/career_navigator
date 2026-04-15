@@ -7,18 +7,19 @@ from ..crud import log_action
 from ..database import get_db
 from ..proxy import get_users
 from ..schemas import AdminActionResult
-from ..security import get_actor_id, require_admin
+from ..security import get_actor_id, get_forward_authorization, require_admin
 
 router = APIRouter(prefix="/admin/users", tags=["admin-users"])
 
 
 @router.get("")
 async def list_users(
+    authorization: str = Depends(get_forward_authorization),
     _admin_id: UUID = Depends(get_actor_id),
 ):
     """List all registered users."""
     try:
-        return await get_users()
+        return await get_users(authorization)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 

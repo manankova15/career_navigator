@@ -8,6 +8,7 @@ class SourceSettings(BaseSettings):
     database_url: str = "postgresql://career_navigator:change_me@postgres:5432/career_navigator"
     jwt_secret: str = "change_me_to_a_long_random_secret"
     jwt_algorithm: str = "HS256"
+    redis_url: str = "redis://localhost:6379/0"
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 

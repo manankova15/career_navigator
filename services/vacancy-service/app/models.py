@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 
@@ -47,9 +48,22 @@ class CanonicalVacancy(Base):
     location = Column(String(200), nullable=True)
     salary_from = Column(Integer, nullable=True)
     salary_to = Column(Integer, nullable=True)
-    currency = Column(String(10), nullable=True, server_default="RUB")
+    salary_currency = Column(String(10), nullable=True, server_default="RUB")
     seniority = Column(String(50), nullable=True)
-    employment_type = Column(String(50), nullable=True)
+    employment_type = Column(ARRAY(String(50)), nullable=True)
+    work_format = Column(ARRAY(String(30)), nullable=False, server_default=text("'{}'"))
+    schedule_type = Column(String(30), nullable=True)
+    experience_level = Column(String(30), nullable=True)
+    salary_gross_type = Column(String(20), nullable=True)
+    salary_period = Column(String(20), nullable=True)
+    profession_area = Column(String(40), nullable=True)
+    specialization = Column(String(80), nullable=True)
+    location_country = Column(String(120), nullable=True)
+    location_city = Column(String(120), nullable=True)
+    education_level = Column(String(30), nullable=True)
+    english_level = Column(String(20), nullable=True)
+    company_industry = Column(String(200), nullable=True)
+    source_name = Column(String(50), nullable=True)
     description = Column(Text, nullable=True)
     skills = Column(ARRAY(String(100)), nullable=False, server_default="{}")
     # active | expired | archived | blocked
@@ -67,6 +81,10 @@ class CanonicalVacancy(Base):
         Index("ix_canonical_vacancies_status", "status"),
         Index("ix_canonical_vacancies_location", "location"),
         Index("ix_canonical_vacancies_seniority", "seniority"),
+        Index("ix_canonical_vacancies_profession_area", "profession_area"),
+        Index("ix_canonical_vacancies_location_city", "location_city"),
+        Index("ix_canonical_vacancies_experience_level", "experience_level"),
+        Index("ix_canonical_vacancies_published_at", "published_at"),
     )
 
 

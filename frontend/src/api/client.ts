@@ -1,5 +1,35 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const BASE = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:8000/api";
+const env = (import.meta as any).env;
+
+/**
+ * Base URL for API calls. Rules:
+ * - If VITE_API_URL is set, it is used (trailing slashes stripped).
+ * - If it points at the gateway on port 8000 but omits `/api`, `/api` is appended
+ *   (the gateway only exposes routes under `/api/*`).
+ * - If unset in the browser, use same-origin `/api` so Vite dev proxy or frontend nginx can forward.
+ */
+function resolveApiBase(): string {
+  const raw = env?.VITE_API_URL?.trim() as string | undefined;
+  if (raw) {
+    const b = raw.replace(/\/+$/, "");
+    if (b.endsWith("/api")) return b;
+    try {
+      const u = new URL(b);
+      if (u.port === "8000") {
+        return `${u.origin}/api`;
+      }
+    } catch {
+      /* ignore invalid URL */
+    }
+    return b;
+  }
+  if (typeof window !== "undefined") {
+    return "/api";
+  }
+  return "http://localhost:8000/api";
+}
+
+export const API_BASE = resolveApiBase();
 
 function token(): string | null {
   return localStorage.getItem("access_token");
@@ -11,7 +41,7 @@ function authHeaders(): Record<string, string> {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const resp = await fetch(`${BASE}${path}`, {
+  const resp = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...authHeaders(), ...(init.headers ?? {}) },
     ...init,
   });

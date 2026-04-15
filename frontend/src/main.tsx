@@ -16,6 +16,7 @@ import VacancyDetailPage from "./pages/VacancyDetailPage";
 import RecommendationsPage from "./pages/RecommendationsPage";
 import AssessmentsPage from "./pages/AssessmentsPage";
 import AssessmentTakePage from "./pages/AssessmentTakePage";
+import AttemptResultPage from "./pages/AttemptResultPage";
 import ProfilePage from "./pages/ProfilePage";
 
 function App() {
@@ -46,6 +47,7 @@ function App() {
           <Route path="/recommendations" element={<RecommendationsPage />} />
           <Route path="/assessments" element={<AssessmentsPage />} />
           <Route path="/assessments/:id" element={<AssessmentTakePage />} />
+          <Route path="/attempts/:attemptId" element={<AttemptResultPage />} />
           <Route path="/profile" element={<ProfilePage user={user} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

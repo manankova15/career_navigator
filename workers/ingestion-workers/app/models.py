@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 
@@ -65,9 +66,22 @@ class CanonicalVacancy(Base):
     location = Column(String(200))
     salary_from = Column(Integer)
     salary_to = Column(Integer)
-    currency = Column(String(10), server_default="RUB")
+    salary_currency = Column(String(10), server_default="RUB")
     seniority = Column(String(50))
-    employment_type = Column(String(50))
+    employment_type = Column(ARRAY(String(50)))
+    work_format = Column(ARRAY(String(30)), nullable=False, server_default=text("'{}'"))
+    schedule_type = Column(String(30))
+    experience_level = Column(String(30))
+    salary_gross_type = Column(String(20))
+    salary_period = Column(String(20))
+    profession_area = Column(String(40))
+    specialization = Column(String(80))
+    location_country = Column(String(120))
+    location_city = Column(String(120))
+    education_level = Column(String(30))
+    english_level = Column(String(20))
+    company_industry = Column(String(200))
+    source_name = Column(String(50))
     description = Column(Text)
     skills = Column(ARRAY(String(100)), server_default="{}")
     status = Column(String(50), server_default="active")

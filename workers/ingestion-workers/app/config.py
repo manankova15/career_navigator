@@ -18,6 +18,17 @@ class WorkerSettings(BaseSettings):
     fetch_pages_per_run: int = 5       # max pages to fetch per source run
     dedup_similarity_threshold: float = 0.85
 
+    # Синхронизация по запросу админа (если в теле запроса не передан max_vacancies)
+    sync_default_max_vacancies: int = 200
+    sync_max_vacancies_cap: int = 5000
+
+    # Telegram (Telethon) — нужны для source_type=telegram
+    telegram_api_id: str = ""
+    telegram_api_hash: str = ""
+    telegram_session_file: str = "/app/.tg_session"
+    telegram_batch_size: int = 100
+    telegram_request_delay_seconds: float = 1.5
+
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
 

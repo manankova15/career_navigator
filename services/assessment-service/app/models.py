@@ -98,8 +98,10 @@ class AssessmentAttempt(Base):
         nullable=False,
         index=True,
     )
-    # completed | abandoned
+    # completed | in_progress | abandoned
     status = Column(String(20), nullable=False, server_default="completed")
+    # For in_progress: [{item_id, selected_option_ids, text_answer}]
+    progress_answers = Column(JSONB, nullable=False, server_default="[]")
     earned_score = Column(Float, nullable=False, server_default="0")
     max_score = Column(Float, nullable=False, server_default="0")
     # 0-100 percentage

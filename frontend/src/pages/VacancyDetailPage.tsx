@@ -1,12 +1,27 @@
 import React, { useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
-import { getVacancy, Vacancy, recordVacancyInterest } from "../api/vacancies";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
+import { getVacancy, Vacancy, recordVacancyInterest, vacancySalaryCurrency } from "../api/vacancies";
+import { useLikedVacancies } from "../hooks/useLikedVacancies";
 import { listAssessments, AssessmentSummary } from "../api/assessments";
+import { recordEvent } from "../api/analytics";
 import { prepareDescription } from "../utils/formatDescription";
 import Spinner from "../components/Spinner";
 import ErrorBanner from "../components/ErrorBanner";
+import {
+  EDUCATION_LEVELS,
+  EMPLOYMENT_LABEL,
+  ENGLISH_LEVELS,
+  EXPERIENCE_LEVEL_LABEL,
+  PROFESSION_AREA_LABEL,
+  SALARY_GROSS_LABEL,
+  SALARY_PERIOD_LABEL,
+  SCHEDULE_LABEL,
+  SPECIALIZATION_OPTIONS,
+  WORK_FORMAT_LABEL,
+} from "../components/vacancies/vacanciesConstants";
 
 const SENIORITY_LABELS: Record<string, string> = {
+  intern: "Стажёр",
   junior: "Junior",
   middle: "Middle",
   senior: "Senior",
@@ -21,6 +36,8 @@ const STATUS_LABELS: Record<string, string> = {
   blocked: "Заблокирована",
 };
 
+const SPEC_LABEL = Object.fromEntries(SPECIALIZATION_OPTIONS.map(o => [o.value, o.label]));
+
 function jaccardRelevance(vacancySkills: string[], assessmentSkills: string[]): number {
   if (!vacancySkills.length || !assessmentSkills.length) return 0;
   const vs = new Set(vacancySkills.map(s => s.toLowerCase()));
@@ -30,20 +47,48 @@ function jaccardRelevance(vacancySkills: string[], assessmentSkills: string[]): 
   return union === 0 ? 0 : intersection / union;
 }
 
+function Chip({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        background: "#F1F5F9",
+        color: "#334155",
+        fontSize: 12,
+        fontWeight: 600,
+        borderRadius: 999,
+        padding: "4px 10px",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function formatEmployment(et: string[] | string | null | undefined): string | null {
+  if (!et) return null;
+  const arr = Array.isArray(et) ? et : [et];
+  return arr.map(x => EMPLOYMENT_LABEL[x] ?? x).join(", ") || null;
+}
+
 export default function VacancyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo ?? "";
   const [vacancy, setVacancy] = useState<Vacancy | null>(null);
   const [error, setError] = useState("");
   const [relevantAssessments, setRelevantAssessments] = useState<(AssessmentSummary & { relevance: number })[]>([]);
   const [interestSubmitted, setInterestSubmitted] = useState(false);
   const [interestAnswer, setInterestAnswer] = useState<boolean | null>(null);
+  const { isLiked, toggleLike } = useLikedVacancies();
 
   useEffect(() => {
     if (!id) return;
     getVacancy(id)
       .then(v => {
         setVacancy(v);
+        recordEvent("vacancy_viewed", "vacancy", id);
         listAssessments()
           .then(all => {
             const scored = all
@@ -67,52 +112,136 @@ export default function VacancyDetailPage() {
   if (error) return <div><ErrorBanner message={error} /></div>;
   if (!vacancy) return <Spinner />;
 
-  function salary() {
+  function salaryBlock(): string {
     if (!vacancy!.salary_from && !vacancy!.salary_to) return "Не указана";
     const parts = [vacancy!.salary_from, vacancy!.salary_to]
       .filter(Boolean)
       .map(n => n!.toLocaleString("ru-RU"));
-    return `${parts.join(" – ")} ${vacancy!.currency ?? "₽"}`.trim();
+    const cur = vacancySalaryCurrency(vacancy!);
+    const sym = cur === "RUB" ? "₽" : cur;
+    const period = vacancy!.salary_period
+      ? SALARY_PERIOD_LABEL[vacancy!.salary_period] ?? vacancy!.salary_period
+      : "";
+    const gross = vacancy!.salary_gross_type
+      ? SALARY_GROSS_LABEL[vacancy!.salary_gross_type] ?? ""
+      : "";
+    const tail = [sym, period, gross].filter(Boolean).join(" · ");
+    return `${parts.join(" – ")} ${tail}`.trim();
   }
+
+  const locationLine = [vacancy.location_city, vacancy.location_country].filter(Boolean).join(", ")
+    || vacancy.location
+    || null;
+
+  const englishLabel = vacancy.english_level
+    ? ENGLISH_LEVELS.find(e => e.value === vacancy.english_level)?.label ?? vacancy.english_level
+    : null;
+  const eduLabel = vacancy.education_level
+    ? EDUCATION_LEVELS.find(e => e.value === vacancy.education_level)?.label ?? vacancy.education_level
+    : null;
+
+  const workFormats = (vacancy.work_format ?? []).map(w => WORK_FORMAT_LABEL[w] ?? w);
+  const scheduleLabel = vacancy.schedule_type
+    ? SCHEDULE_LABEL[vacancy.schedule_type] ?? vacancy.schedule_type
+    : null;
+  const experienceLabel = vacancy.experience_level
+    ? EXPERIENCE_LEVEL_LABEL[vacancy.experience_level] ?? vacancy.experience_level
+    : null;
+  const employmentStr = formatEmployment(vacancy.employment_type);
+
+  const professionLabel = vacancy.profession_area
+    ? PROFESSION_AREA_LABEL[vacancy.profession_area] ?? vacancy.profession_area
+    : null;
+  const specLabel = vacancy.specialization
+    ? SPEC_LABEL[vacancy.specialization] ?? vacancy.specialization
+    : null;
+
+  const conditionsChips: React.ReactNode[] = [];
+  if (employmentStr) conditionsChips.push(<Chip key="et">{employmentStr}</Chip>);
+  workFormats.forEach((w, i) => conditionsChips.push(<Chip key={`wf${i}`}>{w}</Chip>));
+  if (scheduleLabel) conditionsChips.push(<Chip key="sch">{scheduleLabel}</Chip>);
+  if (experienceLabel) conditionsChips.push(<Chip key="exp">{experienceLabel}</Chip>);
+  if (englishLabel) conditionsChips.push(<Chip key="en">{englishLabel}</Chip>);
+  if (eduLabel) conditionsChips.push(<Chip key="edu">{eduLabel}</Chip>);
 
   return (
     <div style={{ maxWidth: 780 }}>
-      {/* Back link */}
-      <Link to="/vacancies" className="text-link" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#3B5BDB", fontSize: 14, textDecoration: "none", fontWeight: 500, marginBottom: 24 }}>
+      <Link to={`/vacancies${returnTo}`} className="text-link" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#3B5BDB", fontSize: 14, textDecoration: "none", fontWeight: 500, marginBottom: 24 }}>
         ← Все вакансии
       </Link>
 
-      {/* Title block */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, color: "#0F172A", margin: "0 0 8px", letterSpacing: "-0.5px", lineHeight: 1.2 }}>
-          {vacancy.title}
-        </h1>
-        <div style={{ fontSize: 16, color: "#3B5BDB", fontWeight: 600, marginBottom: 6 }}>{vacancy.company}</div>
-        {vacancy.location && (
-          <div style={{ display: "flex", alignItems: "center", gap: 5, color: "#64748B", fontSize: 14 }}>
-            <span>📍</span> {vacancy.location}
+      <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: "#0F172A", margin: "0 0 8px", letterSpacing: "-0.5px", lineHeight: 1.2 }}>
+            {vacancy.title}
+          </h1>
+          <div style={{ fontSize: 16, color: "#3B5BDB", fontWeight: 600, marginBottom: 6 }}>{vacancy.company}</div>
+          {locationLine && (
+            <div style={{ display: "flex", alignItems: "center", gap: 5, color: "#64748B", fontSize: 14 }}>
+              <span>📍</span> {locationLine}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => toggleLike(vacancy)}
+          aria-label={isLiked(vacancy.id) ? "Убрать из понравившихся" : "Добавить в понравившиеся"}
+          style={{
+            flexShrink: 0,
+            width: 48,
+            height: 48,
+            borderRadius: 14,
+            border: "1px solid #E6EAF2",
+            background: isLiked(vacancy.id) ? "#FFF1F2" : "#FFFFFF",
+            color: isLiked(vacancy.id) ? "#E11D48" : "#94A3B8",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "color 0.2s ease, background 0.2s ease",
+          }}
+        >
+          <svg width={24} height={24} viewBox="0 0 24 24" fill={isLiked(vacancy.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+          </svg>
+        </button>
+      </div>
+
+      <div style={{ background: "#fff", border: "1.5px solid #E2E8F0", borderRadius: 20, padding: "20px 24px", marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
+        <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Условия</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+          <StatItem icon="💰" label="Зарплата" value={salaryBlock()} />
+          <StatItem icon="📋" label="Статус" value={STATUS_LABELS[vacancy.status] ?? vacancy.status} />
+          {vacancy.seniority && (
+            <StatItem
+              icon="🎯"
+              label="Уровень (legacy)"
+              value={(vacancy.seniority.split(/\s*,\s*/).map(s => SENIORITY_LABELS[s.trim().toLowerCase()] ?? s.trim()).filter(Boolean).join(", "))}
+            />
+          )}
+        </div>
+        {conditionsChips.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+            {conditionsChips}
           </div>
         )}
       </div>
 
-      {/* Meta card */}
-      <div style={{ background: "#fff", border: "1.5px solid #E2E8F0", borderRadius: 20, padding: "20px 24px", marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 20 }}>
-          <StatItem icon="💰" label="Зарплата" value={salary()} accent="#059669" />
-          <StatItem icon="📋" label="Статус" value={STATUS_LABELS[vacancy.status] ?? vacancy.status} accent="#3B5BDB" />
-          {vacancy.seniority && (
-            <StatItem icon="🎯" label="Уровень" value={SENIORITY_LABELS[vacancy.seniority] ?? vacancy.seniority} accent="#7C3AED" />
-          )}
-          {vacancy.employment_type && (
-            <StatItem icon="⏱" label="Тип занятости" value={vacancy.employment_type} accent="#D97706" />
-          )}
+      {(professionLabel || specLabel || vacancy.company_industry) && (
+        <div style={{ background: "#fff", border: "1.5px solid #E2E8F0", borderRadius: 20, padding: "20px 24px", marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
+          <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Категория</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 14, color: "#334155" }}>
+            {professionLabel && <div><strong>Область:</strong> {professionLabel}</div>}
+            {specLabel && <div><strong>Специализация:</strong> {specLabel}</div>}
+            {vacancy.company_industry && <div><strong>Индустрия:</strong> {vacancy.company_industry}</div>}
+            {vacancy.source_name && <div style={{ fontSize: 13, color: "#64748B" }}>Источник: {vacancy.source_name}</div>}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Skills */}
       {vacancy.skills && vacancy.skills.length > 0 && (
         <div style={{ background: "#fff", border: "1.5px solid #E2E8F0", borderRadius: 20, padding: "20px 24px", marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
-          <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Требуемые навыки</h3>
+          <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Навыки</h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {vacancy.skills.map(s => (
               <span key={s} style={{ background: "#EEF2FF", color: "#3B5BDB", fontSize: 12, fontWeight: 500, borderRadius: 999, padding: "5px 12px" }}>
@@ -123,7 +252,6 @@ export default function VacancyDetailPage() {
         </div>
       )}
 
-      {/* Description */}
       {vacancy.description && (
         <div style={{ background: "#fff", border: "1.5px solid #E2E8F0", borderRadius: 20, padding: "20px 24px", marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
           <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Описание</h3>
@@ -134,7 +262,6 @@ export default function VacancyDetailPage() {
         </div>
       )}
 
-      {/* Interest survey */}
       <div style={{ background: "#F8FAFC", border: "1.5px solid #E2E8F0", borderRadius: 20, padding: "20px 24px", marginBottom: 16 }}>
         {!interestSubmitted ? (
           <>
@@ -181,7 +308,6 @@ export default function VacancyDetailPage() {
         )}
       </div>
 
-      {/* Relevant assessments */}
       {relevantAssessments.length > 0 && (
         <div style={{ background: "#fff", border: "1.5px solid #E2E8F0", borderRadius: 20, padding: "20px 24px", marginBottom: 24, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
           <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700, color: "#0F172A" }}>
@@ -222,7 +348,6 @@ export default function VacancyDetailPage() {
         </div>
       )}
 
-      {/* Apply button */}
       {vacancy.canonical_url && (
         <a
           href={vacancy.canonical_url}
@@ -246,7 +371,7 @@ export default function VacancyDetailPage() {
   );
 }
 
-function StatItem({ icon, label, value, accent }: { icon: string; label: string; value: string; accent: string }) {
+function StatItem({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
       <div style={{ fontSize: 18, marginTop: 1 }}>{icon}</div>

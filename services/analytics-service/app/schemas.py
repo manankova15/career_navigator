@@ -13,6 +13,14 @@ class EventIn(BaseModel):
     occurred_at: datetime | None = None
 
 
+class EventFromUserIn(BaseModel):
+    """Событие от текущего пользователя (user_id берётся из JWT)."""
+    event_type: str
+    resource_type: str | None = None
+    resource_id: str | None = None
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
 class AssessmentEventIn(BaseModel):
     user_id: UUID
     assessment_id: UUID

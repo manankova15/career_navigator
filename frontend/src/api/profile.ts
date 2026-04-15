@@ -46,3 +46,22 @@ export async function addProfileSkill(skill_name: string, level = 1): Promise<Pr
 export async function removeProfileSkill(skillId: string): Promise<void> {
   return api.del<void>(`/profiles/me/skills/${skillId}`);
 }
+
+export interface ProfilePreferences {
+  preferred_locations: string[];
+  work_formats: string[];
+  target_roles: string[];
+  salary_from?: number | null;
+  salary_to?: number | null;
+  seniority?: string | null;
+}
+
+export async function getPreferences(): Promise<ProfilePreferences | null> {
+  return api.get<ProfilePreferences | null>("/profiles/me/preferences");
+}
+
+export async function updatePreferences(
+  data: Partial<ProfilePreferences>,
+): Promise<ProfilePreferences> {
+  return api.put<ProfilePreferences>("/profiles/me/preferences", data);
+}

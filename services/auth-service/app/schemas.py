@@ -47,3 +47,23 @@ class UserOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AdminUserListItem(BaseModel):
+    user_id: UUID
+    full_name: str
+    email: str | None
+    roles: list[str]
+    is_active: bool
+    created_at: datetime
+
+
+class AdminUserListPage(BaseModel):
+    items: list[AdminUserListItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class AdminStatsOut(BaseModel):
+    total_users: int

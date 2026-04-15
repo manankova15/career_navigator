@@ -1,11 +1,31 @@
+from uuid import UUID
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from ..crud import ingest_event, upsert_assessment_stat
 from ..database import get_db
-from ..schemas import AssessmentEventIn, EventIn
-from ..security import require_internal_or_service
+from ..schemas import AssessmentEventIn, EventIn, EventFromUserIn
+from ..security import get_current_user_id, require_internal_or_service
 
 router = APIRouter(prefix="/analytics/events", tags=["events"])
+
+
+@router.post("/me", status_code=status.HTTP_202_ACCEPTED)
+def ingest_my_event(
+    payload: EventFromUserIn,
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Фронт отправляет событие от имени текущего пользователя (vacancy_viewed, recommendation_clicked и т.д.)."""
+    ingest_event(
+        db,
+        user_id,
+        payload.event_type,
+        payload.resource_type,
+        payload.resource_id,
+        payload.properties,
+        None,
+    )
+    return {"status": "accepted"}
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)

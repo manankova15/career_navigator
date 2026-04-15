@@ -1,21 +1,27 @@
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..crud import (
     add_item_to_assessment,
+    admin_attempt_stats,
     count_user_attempts_for_assessment,
     create_assessment,
     delete_assessment,
     get_assessment,
+    get_attempt,
+    get_in_progress_attempt,
     list_assessments,
+    start_attempt,
     submit_attempt,
     update_assessment,
 )
 from ..database import get_db
 from ..schemas import (
+    AdminAssessmentStatsOut,
     AssessmentCreate,
     AssessmentItemAdminOut,
     AssessmentItemCreate,
@@ -101,6 +107,15 @@ def list_all_assessments_admin(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/admin/stats", response_model=AdminAssessmentStatsOut)
+def admin_assessment_stats(
+    db: Session = Depends(get_db),
+    _admin_id: UUID = Depends(require_admin),
+):
+    data = admin_attempt_stats(db)
+    return AdminAssessmentStatsOut(**data)
 
 
 # ── Create assessment ─────────────────────────────────────────────────────────
@@ -189,6 +204,29 @@ def add_item(
     return _item_admin_out(item)
 
 
+# ── Start attempt (for save/resume) ────────────────────────────────────────────
+
+@router.post(
+    "/{assessment_id}/start",
+    response_model=AttemptOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def start_assessment_attempt(
+    assessment_id: UUID,
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Start an assessment; returns an in_progress attempt. Use progress save and submit with attempt_id to complete."""
+    assessment = get_assessment(db, assessment_id)
+    if not assessment or not assessment.is_published:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
+    existing = get_in_progress_attempt(db, user_id, assessment_id)
+    if existing:
+        return AttemptOut.from_orm_with_passed(existing)
+    attempt = start_attempt(db, user_id, assessment)
+    return AttemptOut.from_orm_with_passed(attempt)
+
+
 # ── Submit attempt ────────────────────────────────────────────────────────────
 
 @router.post(
@@ -204,22 +242,48 @@ def submit_assessment_attempt(
 ):
     """
     Submit all answers for an assessment in one request.
+    If attempt_id is provided, completes that in-progress attempt.
     Returns the completed attempt with per-answer auto-check results.
     """
     assessment = get_assessment(db, assessment_id)
     if not assessment or not assessment.is_published:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
 
-    max_attempts = settings.max_attempts_per_assessment
-    if max_attempts > 0:
-        used = count_user_attempts_for_assessment(db, user_id, assessment_id)
-        if used >= max_attempts:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Maximum attempts ({max_attempts}) reached for this assessment.",
-            )
+    existing_attempt = None
+    if payload.attempt_id:
+        existing_attempt = get_attempt(db, payload.attempt_id)
+        if not existing_attempt or existing_attempt.user_id != user_id or existing_attempt.assessment_id != assessment_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid attempt_id")
+        if existing_attempt.status != "in_progress":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attempt already completed")
 
-    attempt = submit_attempt(db, user_id, assessment, payload.answers)
+    if not existing_attempt and settings.max_attempts_per_assessment > 0:
+        used = count_user_attempts_for_assessment(db, user_id, assessment_id)
+        if used >= settings.max_attempts_per_assessment:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Maximum attempts ({settings.max_attempts_per_assessment}) "
+                        "reached for this assessment."
+                    ),
+                )
+
+    attempt = submit_attempt(db, user_id, assessment, payload.answers, existing_attempt=existing_attempt)
+    # Уведомить analytics для дашборда (статистика и «Последние задания»)
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            client.post(
+                f"{settings.analytics_service_url.rstrip('/')}/analytics/events/assessment-completed",
+                json={
+                    "user_id": str(user_id),
+                    "assessment_id": str(assessment_id),
+                    "topic": assessment.topic,
+                    "percentage": float(attempt.percentage),
+                },
+                headers={"X-Internal-Token": settings.internal_token},
+            )
+    except Exception:
+        pass  # не ломаем ответ при недоступности analytics
     return AttemptOut.from_orm_with_passed(attempt)
 
 

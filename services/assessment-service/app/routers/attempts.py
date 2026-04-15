@@ -3,9 +3,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from ..crud import get_attempt, get_feedback_by_attempt, list_user_attempts
+from ..crud import get_attempt, get_feedback_by_attempt, list_user_attempts, save_attempt_progress
 from ..database import get_db
-from ..schemas import AttemptOut, AttemptPage, AttemptSummaryOut, FeedbackOut
+from ..schemas import AttemptOut, AttemptPage, AttemptSummaryOut, FeedbackOut, ProgressSaveIn
 from ..security import get_current_user_id, require_admin
 
 router = APIRouter(prefix="/attempts", tags=["attempts"])
@@ -21,7 +21,7 @@ def my_attempts(
     db: Session = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
-    """Return paginated history of the current user's assessment attempts."""
+    """Return paginated history of the current user's assessment attempts (with assessment title for dashboard)."""
     offset = (page - 1) * page_size
     items, total = list_user_attempts(
         db,
@@ -29,6 +29,7 @@ def my_attempts(
         assessment_id=assessment_id,
         offset=offset,
         limit=page_size,
+        load_assessment=True,
     )
     return AttemptPage(
         items=[AttemptSummaryOut.from_orm_with_passed(a) for a in items],
@@ -68,6 +69,24 @@ def get_my_feedback(
             detail="Feedback not available yet",
         )
     return feedback
+
+
+@router.patch("/{attempt_id}/progress", response_model=AttemptOut)
+def patch_my_progress(
+    attempt_id: UUID,
+    payload: ProgressSaveIn,
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Save partial answers for an in-progress attempt (to resume later)."""
+    progress_answers = [
+        {"item_id": str(a.item_id), "selected_option_ids": a.selected_option_ids, "text_answer": a.text_answer}
+        for a in payload.answers
+    ]
+    attempt = save_attempt_progress(db, attempt_id, user_id, progress_answers)
+    if not attempt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found or not in progress")
+    return AttemptOut.from_orm_with_passed(attempt)
 
 
 # ── Admin: any user's attempts ────────────────────────────────────────────────

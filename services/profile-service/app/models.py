@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ARRAY, Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import ARRAY, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -126,3 +126,81 @@ class Education(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     profile = relationship("Profile", back_populates="educations")
+
+
+class ResumeFile(Base):
+    __tablename__ = "resume_files"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    original_name = Column(String(512), nullable=False)
+    mime_type = Column(String(128), nullable=False)
+    extension = Column(String(16), nullable=False)
+    size = Column(Integer, nullable=False)
+    storage_path = Column(String(1024), nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    source_type = Column(String(32), nullable=False, default="hh_resume")
+    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ResumeParseJob(Base):
+    __tablename__ = "resume_parse_jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    resume_file_id = Column(
+        UUID(as_uuid=True), ForeignKey("resume_files.id", ondelete="CASCADE"), nullable=False
+    )
+    status = Column(String(32), nullable=False)
+    error_message = Column(Text, nullable=True)
+    parser_version = Column(String(32), nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class ResumeParseResult(Base):
+    __tablename__ = "resume_parse_results"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    resume_file_id = Column(
+        UUID(as_uuid=True), ForeignKey("resume_files.id", ondelete="CASCADE"), nullable=False
+    )
+    is_hh_resume = Column(Boolean, nullable=False, default=False)
+    hh_confidence_score = Column(Float, nullable=False, default=0.0)
+    raw_text = Column(Text, nullable=True)
+    normalized_text = Column(Text, nullable=True)
+    parsed_json = Column(JSONB, nullable=True)
+    warnings_json = Column(JSONB, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ProfileImportDraft(Base):
+    __tablename__ = "profile_import_drafts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    resume_file_id = Column(
+        UUID(as_uuid=True), ForeignKey("resume_files.id", ondelete="CASCADE"), nullable=False
+    )
+    draft_json = Column(JSONB, nullable=False)
+    field_confidence_json = Column(JSONB, nullable=True)
+    status = Column(String(32), nullable=False, default="draft")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    applied_at = Column(DateTime, nullable=True)
+
+
+class ProfileImportAuditLog(Base):
+    __tablename__ = "profile_import_audit_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    resume_file_id = Column(
+        UUID(as_uuid=True), ForeignKey("resume_files.id", ondelete="SET NULL"), nullable=True
+    )
+    draft_id = Column(
+        UUID(as_uuid=True), ForeignKey("profile_import_drafts.id", ondelete="SET NULL"), nullable=True
+    )
+    field_name = Column(String(256), nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    source = Column(String(64), nullable=False, default="hh_resume_import")
+    changed_at = Column(DateTime, default=datetime.utcnow, nullable=False)

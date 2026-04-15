@@ -31,6 +31,7 @@ from ..schemas import (
     WorkExperienceIn,
     WorkExperienceOut,
 )
+from .resume_import import router as resume_import_router
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
@@ -174,3 +175,6 @@ async def add_education_entry(
     db: Session = Depends(get_db),
 ):
     return add_education(db, user_id, data)
+
+
+router.include_router(resume_import_router, prefix="/me/resume")

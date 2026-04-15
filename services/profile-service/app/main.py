@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -20,6 +22,11 @@ app.add_middleware(
 )
 
 app.include_router(profiles_router)
+
+
+@app.on_event("startup")
+def _ensure_resume_storage():
+    Path(settings.resume_storage_dir).mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/health", tags=["meta"])

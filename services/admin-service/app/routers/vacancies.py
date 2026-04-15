@@ -7,7 +7,7 @@ from ..crud import log_action
 from ..database import get_db
 from ..proxy import get_vacancies, moderate_vacancy
 from ..schemas import AdminActionResult, VacancyModerate
-from ..security import get_actor_id, require_admin
+from ..security import get_actor_id, get_forward_authorization, require_admin
 
 router = APIRouter(prefix="/admin/vacancies", tags=["admin-vacancies"])
 
@@ -17,11 +17,14 @@ async def list_vacancies_admin(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     q: str = Query(""),
+    authorization: str = Depends(get_forward_authorization),
     _admin_id: UUID = Depends(get_actor_id),
 ):
     """Proxy: list all vacancies (including non-active) for admin review."""
     try:
-        return await get_vacancies(page=page, page_size=page_size, q=q)
+        return await get_vacancies(
+            authorization, page=page, page_size=page_size, q=q
+        )
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
@@ -34,10 +37,11 @@ async def moderate_vacancy_status(
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin),
     actor_id: UUID = Depends(get_actor_id),
+    authorization: str = Depends(get_forward_authorization),
 ):
     """Set vacancy status (active | archived | blocked)."""
     try:
-        await moderate_vacancy(str(vacancy_id), payload.status)
+        await moderate_vacancy(authorization, str(vacancy_id), payload.status)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 

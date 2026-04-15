@@ -36,3 +36,14 @@ def require_admin(
 
 def get_actor_id(payload: dict = Depends(require_admin)) -> UUID:
     return UUID(payload["sub"])
+
+
+def get_forward_authorization(request: Request) -> str:
+    """Authorization: Bearer … от админского клиента — проксируется в доменные сервисы."""
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Bearer token required",
+        )
+    return auth

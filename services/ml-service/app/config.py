@@ -16,6 +16,11 @@ class MLSettings(BaseSettings):
     top_n: int = 50              # top results to return
     skill_gap_top_n: int = 20    # top missing skills to surface
 
+    # Hybrid ranker (LightGBM + content blend)
+    model_dir: str = "/models"
+    blend_ml_weight: float = 0.65
+    blend_content_weight: float = 0.35
+
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
 

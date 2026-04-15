@@ -48,6 +48,7 @@ class VacancyRecommendation(Base):
     location_score = Column(Float, nullable=False, server_default="0")
     salary_score = Column(Float, nullable=False, server_default="0")
     seniority_score = Column(Float, nullable=False, server_default="0")
+    ml_score = Column(Float, nullable=True)
     matched_skills = Column(JSONB, nullable=False, server_default="[]")
     missing_skills = Column(JSONB, nullable=False, server_default="[]")
     reasons = Column(JSONB, nullable=False, server_default="[]")
@@ -82,3 +83,18 @@ class SkillGapRecord(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     session = relationship("RecommendationSession", back_populates="skill_gaps")
+
+
+class UserLikedVacancy(Base):
+    """Server-side vacancy like for personalization (soft-unlike via unliked_at)."""
+    __tablename__ = "user_liked_vacancies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    vacancy_id = Column(UUID(as_uuid=True), nullable=False)
+    liked_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    unliked_at = Column(DateTime, nullable=True)
+    vacancy_title = Column(String(300), nullable=True)
+    vacancy_skills = Column(JSONB, nullable=True, server_default="[]")
+
+    __table_args__ = (UniqueConstraint("user_id", "vacancy_id", name="uq_user_liked_vacancy"),)

@@ -1,0 +1,2 @@
+# Зависимости для scripts/reseed_vacancies.py, seed_hh_vacancies.py и т.п.
+requests>=2.28.0

@@ -1,8 +1,41 @@
+from contextlib import asynccontextmanager
+
+from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .routers.recommendations import router as rec_router
+from .scheduler_jobs import run_hourly_recommendation_refresh
+
+scheduler = BackgroundScheduler()
+
+
+def _scheduled_refresh_job() -> None:
+    from .database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        run_hourly_recommendation_refresh(db)
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.enable_scheduled_refresh:
+        scheduler.add_job(
+            _scheduled_refresh_job,
+            "interval",
+            hours=float(settings.refresh_interval_hours),
+            id="hourly_rec_refresh",
+            replace_existing=True,
+        )
+        scheduler.start()
+    yield
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+
 
 app = FastAPI(
     title=settings.service_name,
@@ -13,6 +46,7 @@ app = FastAPI(
     ),
     docs_url="/docs",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from .models import RecommendationSession, SkillGapRecord, VacancyRecommendation
+from .models import RecommendationSession, SkillGapRecord, UserLikedVacancy, VacancyRecommendation
 
 
 def get_latest_session(db: Session, user_id: UUID) -> RecommendationSession | None:
@@ -43,6 +43,7 @@ def create_session(
             matched_skills=item.get("matched_skills", []),
             missing_skills=item.get("missing_skills", []),
             reasons=item.get("reasons", []),
+            ml_score=item.get("ml_score"),
         )
         db.add(rec)
 
@@ -108,3 +109,61 @@ def apply_feedback(
     db.commit()
     db.refresh(rec)
     return rec
+
+
+def get_active_likes(db: Session, user_id: UUID) -> list[UserLikedVacancy]:
+    return (
+        db.query(UserLikedVacancy)
+        .filter(UserLikedVacancy.user_id == user_id, UserLikedVacancy.unliked_at.is_(None))
+        .order_by(UserLikedVacancy.liked_at.desc())
+        .all()
+    )
+
+
+def upsert_like(
+    db: Session,
+    user_id: UUID,
+    vacancy_id: UUID,
+    vacancy_title: str | None,
+    vacancy_skills: list[str] | None,
+) -> UserLikedVacancy:
+    row = (
+        db.query(UserLikedVacancy)
+        .filter(UserLikedVacancy.user_id == user_id, UserLikedVacancy.vacancy_id == vacancy_id)
+        .first()
+    )
+    title = (vacancy_title or "")[:300]
+    skills = vacancy_skills if vacancy_skills is not None else []
+    if row:
+        row.unliked_at = None
+        row.vacancy_title = title or row.vacancy_title
+        row.vacancy_skills = skills
+        row.liked_at = datetime.utcnow()
+    else:
+        row = UserLikedVacancy(
+            user_id=user_id,
+            vacancy_id=vacancy_id,
+            vacancy_title=title or None,
+            vacancy_skills=skills,
+        )
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def soft_unlike(db: Session, user_id: UUID, vacancy_id: UUID) -> bool:
+    row = (
+        db.query(UserLikedVacancy)
+        .filter(
+            UserLikedVacancy.user_id == user_id,
+            UserLikedVacancy.vacancy_id == vacancy_id,
+            UserLikedVacancy.unliked_at.is_(None),
+        )
+        .first()
+    )
+    if not row:
+        return False
+    row.unliked_at = datetime.utcnow()
+    db.commit()
+    return True

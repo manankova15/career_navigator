@@ -57,7 +57,7 @@ CHANNELS_FILE = os.getenv("TELEGRAM_CHANNELS", os.path.join(SCRIPT_DIR, "telegra
 TELEGRAM_CHANNEL_DEFAULT = os.getenv("TELEGRAM_CHANNEL", "job_for_analysts")
 
 # Количество вакансий для загрузки (всего со всех каналов)
-TARGET_COUNT = int(os.getenv("TELEGRAM_TARGET_COUNT", "500"))
+TARGET_COUNT = int(os.getenv("TELEGRAM_TARGET_COUNT", "1000"))
 # Максимум сообщений на итерацию (Telegram отдаёт по 100 штук)
 BATCH_SIZE = 100
 # Задержка между запросами (секунды) — важно для соблюдения лимитов
@@ -150,9 +150,9 @@ _CURRENCY_MAP = {
 }
 
 _SENIORITY_MAP = [
-    ("intern",  ["стажёр", "intern", "стажер", "trainee"]),
-    ("junior",  ["junior", "джун", "начинающий"]),
-    ("middle",  ["middle", "мидл"]),
+    ("intern",  ["стажёр", "стажер", "intern", "trainee"]),
+    ("junior",  ["junior", "джун", "джуниор", "начинающий"]),
+    ("middle",  ["middle", "мидл", "миддл"]),
     ("senior",  ["senior", "сеньор", "ведущий"]),
     ("lead",    ["lead", "лид", "principal", "staff", "архитектор", "руководитель"]),
 ]
@@ -190,11 +190,6 @@ _COMPANY_PATTERNS = [
     re.compile(r"🏦\s*([^\n]{3,100})"),
     re.compile(r"(?:ООО|ОАО|ЗАО|АО|ИП)\s+[«\"]?([^\n»\"]{3,80})"),
 ]
-
-_URL_PATTERN = re.compile(
-    r"https?://[^\s<>\"']{5,200}",
-    re.IGNORECASE,
-)
 
 # Markdown link pattern: [text](url)
 _MD_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((https?://[^\)]+)\)", re.IGNORECASE)
@@ -236,11 +231,13 @@ def parse_salary(text: str) -> tuple[int | None, int | None, str]:
 
 
 def parse_seniority(text: str) -> str | None:
+    """Возвращает все найденные уровни через запятую (например 'middle, senior')."""
     lower = text.lower()
+    found = []
     for level, keywords in _SENIORITY_MAP:
-        if any(k in lower for k in keywords):
-            return level
-    return None
+        if any(k in lower for k in keywords) and level not in found:
+            found.append(level)
+    return ", ".join(found) if found else None
 
 
 def parse_skills(text: str) -> list[str]:
@@ -271,20 +268,6 @@ def parse_company(text: str) -> str | None:
     return None
 
 
-def parse_url(text: str) -> str | None:
-    # Prefer URL from Markdown link [text](url) — guarantees clean URL
-    md = _MD_LINK_PATTERN.search(text)
-    if md:
-        return md.group(2).rstrip(")")
-    m = _URL_PATTERN.search(text)
-    if m:
-        url = m.group(0)
-        # Strip trailing punctuation that is not part of the URL
-        url = url.rstrip(").,;>]\"'")
-        return url
-    return None
-
-
 def extract_title(text: str) -> str:
     """Берём первую непустую строку как заголовок вакансии."""
     for line in text.strip().splitlines():
@@ -311,9 +294,39 @@ def is_vacancy_message(text: str) -> bool:
     return sum(1 for m in vacancy_markers if m in lower) >= 2
 
 
+def contains_multiple_vacancies(text: str) -> bool:
+    """Определяет, что в одном посте перечислено несколько вакансий (такие посты пропускаем)."""
+    if not text or len(text) < 100:
+        return False
+    # Нумерованные блоки вакансий: "1. ... 2. ... 3. ..." или "Вакансия 1 / 2 / 3"
+    numbered_vacancy = re.compile(
+        r"(?:^|\n)\s*(?:\d+[.)]\s*|ваканси[яи]\s*\d+|#\d+)\s*[:\-]?\s*"
+        r".{20,200}(?:ваканси|ищем|требуется|нужен|нужна|hiring|job)",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    if len(numbered_vacancy.findall(text)) >= 2:
+        return True
+    # Несколько явных заголовков "Вакансия:" или "Ищем:" в разных местах (разделены переносами)
+    parts = re.split(r"\n\s*\n", text)
+    vacancy_headers = [
+        p.strip()
+        for p in parts
+        if re.search(r"^(ваканси[яи]|ищем|требуется|открыта позиция)\s*[:\-]", p[:80], re.IGNORECASE)
+    ]
+    if len(vacancy_headers) >= 2:
+        return True
+    # Маркеры "• Вакансия" или "— Вакансия" повторяются 2+ раз
+    bullet_vacancy = re.compile(r"(?:^|\n)\s*[•\-*]\s*(?:ваканси|ищем|требуется)", re.IGNORECASE | re.MULTILINE)
+    if len(bullet_vacancy.findall(text)) >= 2:
+        return True
+    return False
+
+
 def parse_message(msg_id: int, text: str, date, channel: str) -> dict | None:
     """Парсим одно сообщение в структуру вакансии. channel — юзернейм канала без @."""
     if not is_vacancy_message(text):
+        return None
+    if contains_multiple_vacancies(text):
         return None
 
     title      = extract_title(text)
@@ -322,8 +335,8 @@ def parse_message(msg_id: int, text: str, date, channel: str) -> dict | None:
     salary_from, salary_to, currency = parse_salary(text)
     seniority  = parse_seniority(text)
     skills     = parse_skills(text)
-    url        = parse_url(text)
-    canonical_url = url or f"https://t.me/{channel}/{msg_id}"
+    # Кнопка «Откликнуться на источнике» ведёт на пост в Telegram; ссылки из текста (hh.ru и т.д.) остаются в description.
+    canonical_url = f"https://t.me/{channel}/{msg_id}"
     source_id  = get_source_id(channel)
 
     published_at = date.isoformat() if date else None
@@ -337,7 +350,7 @@ def parse_message(msg_id: int, text: str, date, channel: str) -> dict | None:
         "location":        location,
         "salary_from":     salary_from,
         "salary_to":       salary_to,
-        "currency":        currency,
+        "salary_currency": currency,
         "seniority":       seniority,
         "employment_type": None,
         "description":     text[:4000],
@@ -442,7 +455,7 @@ async def collect_vacancies():
                     if vacancy["salary_from"] or vacancy["salary_to"]:
                         f_ = vacancy["salary_from"] or "?"
                         t_ = vacancy["salary_to"]   or "?"
-                        sal_str = f" | {f_}–{t_} {vacancy['currency']}"
+                        sal_str = f" | {f_}–{t_} {vacancy.get('salary_currency', 'RUB')}"
                     print(
                         f"  [{loaded}/{TARGET_COUNT}] ✓ {vacancy['title'][:55]}"
                         f" @ {vacancy['company'][:25]}{sal_str}"

@@ -64,19 +64,22 @@ INTERNAL_HEADERS = {
 }
 
 SENIORITY_KEYWORDS = {
-    "junior": ["junior", "джун", "начинающий", "стажёр", "intern"],
-    "middle": ["middle", "мидл"],
+    "intern": ["intern", "стажёр", "стажер", "trainee"],
+    "junior": ["junior", "джун", "джуниор", "начинающий"],
+    "middle": ["middle", "мидл", "миддл"],
     "senior": ["senior", "сеньор", "ведущий"],
-    "lead": ["lead", "лид", "principal", "staff", "архитектор"],
+    "lead": ["lead", "лид", "principal", "staff", "архитектор", "руководитель"],
 }
 
 
-def detect_seniority(title: str) -> str | None:
-    t = title.lower()
+def detect_seniority(title: str, description: str | None = None) -> str | None:
+    """Ищет все упомянутые уровни в заголовке и описании, возвращает через запятую."""
+    text = (title + " " + (description or "")).lower()
+    found = []
     for level, kw in SENIORITY_KEYWORDS.items():
-        if any(k in t for k in kw):
-            return level
-    return None
+        if any(k in text for k in kw) and level not in found:
+            found.append(level)
+    return ", ".join(found) if found else None
 
 
 def extract_skills(vacancy_detail: dict) -> list[str]:
@@ -164,11 +167,11 @@ def run():
             location = (item.get("area") or {}).get("name")
             canonical_url = item.get("alternate_url", f"https://hh.ru/vacancy/{hh_id}")
             salary_from, salary_to, currency = salary_info(item)
-            seniority = detect_seniority(title)
             published_at = item.get("published_at")
 
             # Получаем детали вакансии (навыки, описание)
             time.sleep(0.3)
+            description = None
             try:
                 detail = fetch_vacancy_detail(hh_id)
                 skills = extract_skills(detail)
@@ -197,6 +200,8 @@ def run():
                 skills = []
                 description = None
 
+            seniority = detect_seniority(title, description)
+
             vacancy_data = {
                 "source_id": source_id,
                 "external_id": f"hh_{hh_id}",
@@ -206,13 +211,15 @@ def run():
                 "location": location,
                 "salary_from": salary_from,
                 "salary_to": salary_to,
-                "currency": currency,
+                "salary_currency": currency,
                 "seniority": seniority,
                 "employment_type": None,
+                "work_format": [],
                 "description": description,
                 "skills": skills,
                 "status": "active",
                 "published_at": published_at,
+                "source_name": "hh",
             }
 
             ok = post_canonical(vacancy_data)

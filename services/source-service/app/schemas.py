@@ -32,3 +32,14 @@ class SourceOut(BaseModel):
 
 class SourceToggle(BaseModel):
     enabled: bool
+
+
+class SourceSyncIn(BaseModel):
+    """Параметры ручной дозагрузки (передаётся в Celery)."""
+
+    max_vacancies: int | None = Field(
+        None,
+        ge=1,
+        le=5000,
+        description="Сколько новых вакансий максимум собрать (HH: новые raw; TG: успешных POST canonical)",
+    )

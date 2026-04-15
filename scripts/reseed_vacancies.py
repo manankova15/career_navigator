@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-Удаляет все вакансии из БД и заново загружает 500 с HH.ru и 500 из Telegram-канала.
+Удаляет все вакансии из БД и заново загружает их с HH.ru и из Telegram-каналов.
 
 Запуск (из корня проекта, при работающих сервисах):
   python scripts/reseed_vacancies.py
 
-Или по шагам:
-  python scripts/reseed_vacancies.py --truncate-only   # только очистка
-  HH_TARGET_COUNT=100 TELEGRAM_TARGET_COUNT=100 python scripts/reseed_vacancies.py  # другое кол-во
+Пример: 1000 с HH.ru и 1000 из Telegram (~300 с каждого канала при 3 каналах):
+  HH_TARGET_COUNT=1000 TELEGRAM_TARGET_COUNT=1000 python scripts/reseed_vacancies.py
+
+Другие варианты:
+  python scripts/reseed_vacancies.py --truncate-only   # только очистка БД
+  HH_TARGET_COUNT=100 TELEGRAM_TARGET_COUNT=100 python scripts/reseed_vacancies.py
 """
 
 import os

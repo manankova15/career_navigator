@@ -32,6 +32,17 @@ class SyncTriggerResult(BaseModel):
     message: str
 
 
+class SourceSyncTriggerIn(BaseModel):
+    """Параметры дозагрузки для прокси на source-service."""
+
+    max_vacancies: int | None = Field(
+        None,
+        ge=1,
+        le=5000,
+        description="Лимит новых вакансий за запуск (по умолчанию — из настроек worker)",
+    )
+
+
 class AdminActionResult(BaseModel):
     success: bool
     message: str
@@ -48,3 +59,9 @@ class AssessmentPublish(BaseModel):
 
 class UserStatusUpdate(BaseModel):
     is_active: bool
+
+
+class AdminDashboardStatsOut(BaseModel):
+    total_users: int
+    completed_attempts: int
+    users_with_completed_attempts: int

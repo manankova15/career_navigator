@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   getAssessment,
   AssessmentDetail,
   AssessmentItem,
   submitAttempt,
+  startAttempt,
+  saveAttemptProgress,
+  myAttempts,
   AttemptResult,
   AnswerResult,
 } from "../api/assessments";
@@ -29,25 +32,70 @@ export default function AssessmentTakePage() {
   const navigate = useNavigate();
   const [assessment, setAssessment] = useState<AssessmentDetail | null>(null);
   const [answers, setAnswers] = useState<Record<string, { selected: string[]; text: string }>>({});
+  const [currentAttemptId, setCurrentAttemptId] = useState<string | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [reviewMode, setReviewMode] = useState<ReviewMode>("none");
   const [expandedHints, setExpandedHints] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const answersRef = useRef(answers);
+  const attemptIdRef = useRef(currentAttemptId);
+  const assessmentRef = useRef(assessment);
+  answersRef.current = answers;
+  attemptIdRef.current = currentAttemptId;
+  assessmentRef.current = assessment;
 
   useEffect(() => {
     if (!id) return;
     getAssessment(id)
-      .then(a => {
+      .then((a) => {
         setAssessment(a);
-        const init: typeof answers = {};
-        a.items.forEach(i => { init[i.id] = { selected: [], text: "" }; });
+        const init: Record<string, { selected: string[]; text: string }> = {};
+        a.items.forEach((i) => { init[i.id] = { selected: [], text: "" }; });
         setAnswers(init);
+        return myAttempts(id).then((attempts) => {
+          const inProg = attempts.find((t) => t.status === "in_progress");
+          if (inProg?.progress_answers?.length) {
+            setCurrentAttemptId(inProg.id);
+            setAnswers((prev) => {
+              const next = { ...prev };
+              inProg.progress_answers!.forEach((p) => {
+                next[p.item_id] = {
+                  selected: p.selected_option_ids ?? [],
+                  text: p.text_answer ?? "",
+                };
+              });
+              return next;
+            });
+          } else if (inProg) {
+            setCurrentAttemptId(inProg.id);
+          } else {
+            return startAttempt(id).then((att) => setCurrentAttemptId(att.id));
+          }
+        });
       })
-      .catch(e => setError(e.message))
+      .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (!attemptIdRef.current || !assessmentRef.current || result) return;
+    const onBeforeUnload = () => {
+      const a = assessmentRef.current;
+      const ans = answersRef.current;
+      const aid = attemptIdRef.current;
+      if (!a || !aid) return;
+      const payload = a.items.map((i) => ({
+        item_id: i.id,
+        selected_option_ids: ans[i.id]?.selected ?? [],
+        text_answer: ans[i.id]?.text || undefined,
+      }));
+      saveAttemptProgress(aid, payload).catch(() => {});
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [currentAttemptId, assessment, result]);
 
   function toggleOption(itemId: string, optId: string, multi: boolean) {
     setAnswers(prev => {
@@ -63,15 +111,15 @@ export default function AssessmentTakePage() {
     if (!assessment) return;
     setSubmitting(true); setError("");
     try {
-      const payload = assessment.items.map(i => ({
+      const payload = assessment.items.map((i) => ({
         item_id: i.id,
         selected_option_ids: answers[i.id]?.selected ?? [],
         text_answer: answers[i.id]?.text || undefined,
       }));
-      const res = await submitAttempt(assessment.id, payload);
+      const res = await submitAttempt(assessment.id, payload, currentAttemptId);
       setResult(res);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally { setSubmitting(false); }
   }
 
@@ -79,9 +127,10 @@ export default function AssessmentTakePage() {
     setResult(null);
     setReviewMode("none");
     setExpandedHints(new Set());
+    setCurrentAttemptId(null);
     if (assessment) {
       const init: typeof answers = {};
-      assessment.items.forEach(i => { init[i.id] = { selected: [], text: "" }; });
+      assessment.items.forEach((i) => { init[i.id] = { selected: [], text: "" }; });
       setAnswers(init);
     }
   }
@@ -145,7 +194,9 @@ export default function AssessmentTakePage() {
   if (result && reviewMode === "review") {
     const answersByItemId: Record<string, AnswerResult> = {};
     (result.answers ?? []).forEach(a => { answersByItemId[a.item_id] = a; });
-    const sortedItems = [...assessment.items].sort((a, b) => a.order - b.order);
+    const sortedItems = [...assessment.items].sort(
+      (a, b) => (a.position ?? a.order ?? 0) - (b.position ?? b.order ?? 0)
+    );
 
     return (
       <div style={{ maxWidth: 720 }}>
@@ -266,7 +317,7 @@ export default function AssessmentTakePage() {
 
       {error && <ErrorBanner message={error} />}
 
-      {[...assessment.items].sort((a, b) => a.order - b.order).map((item, idx) => (
+      {[...assessment.items].sort((a, b) => (a.position ?? a.order ?? 0) - (b.position ?? b.order ?? 0)).map((item, idx) => (
         <ItemBlock key={item.id} item={item} index={idx}
           answer={answers[item.id] ?? { selected: [], text: "" }}
           onToggle={toggleOption}

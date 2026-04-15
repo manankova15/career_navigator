@@ -111,6 +111,12 @@ class AnswerIn(BaseModel):
 
 class AttemptSubmit(BaseModel):
     answers: list[AnswerIn] = Field(min_length=1)
+    attempt_id: UUID | None = None
+
+
+class ProgressSaveIn(BaseModel):
+    """Partial answers for in-progress attempt (to resume later)."""
+    answers: list[AnswerIn] = Field(default_factory=list)
 
 
 # ── Attempt output ────────────────────────────────────────────────────────────
@@ -144,6 +150,7 @@ class AttemptOut(BaseModel):
     started_at: datetime | None = None
     submitted_at: datetime | None = None
     answers: list[AnswerOut]
+    progress_answers: list[dict] = Field(default_factory=list, description="For in_progress: saved answers to restore")
 
     model_config = {"from_attributes": True}
 
@@ -153,6 +160,8 @@ class AttemptOut(BaseModel):
         obj.passed = attempt.percentage >= pass_threshold
         obj.started_at = attempt.created_at
         obj.submitted_at = attempt.completed_at
+        if getattr(attempt, "progress_answers", None) is not None:
+            obj.progress_answers = attempt.progress_answers or []
         return obj
 
 
@@ -160,6 +169,7 @@ class AttemptSummaryOut(BaseModel):
     """Lightweight attempt row for history listings."""
     id: UUID
     assessment_id: UUID
+    assessment_title: str | None = None
     status: str
     earned_score: float
     max_score: float
@@ -174,11 +184,15 @@ class AttemptSummaryOut(BaseModel):
     model_config = {"from_attributes": True}
 
     @classmethod
-    def from_orm_with_passed(cls, attempt, pass_threshold: float = 60.0):
+    def from_orm_with_passed(cls, attempt, pass_threshold: float = 60.0, assessment_title: str | None = None):
         obj = cls.model_validate(attempt)
         obj.passed = attempt.percentage >= pass_threshold
         obj.started_at = attempt.created_at
         obj.submitted_at = attempt.completed_at
+        if assessment_title is not None:
+            obj.assessment_title = assessment_title
+        elif getattr(attempt, "assessment", None) is not None:
+            obj.assessment_title = attempt.assessment.title
         return obj
 
 
@@ -203,6 +217,11 @@ class AssessmentPage(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class AdminAssessmentStatsOut(BaseModel):
+    completed_attempts: int
+    users_with_completed_attempts: int
 
 
 class AttemptPage(BaseModel):

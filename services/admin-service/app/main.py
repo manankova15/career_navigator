@@ -5,6 +5,7 @@ from .config import settings
 from .routers.assessments import router as assessments_router
 from .routers.audit import router as audit_router
 from .routers.sources import router as sources_router
+from .routers.stats import router as stats_router
 from .routers.users import router as users_router
 from .routers.vacancies import router as vacancies_router
 
@@ -29,6 +30,7 @@ app.add_middleware(
 )
 
 app.include_router(audit_router)
+app.include_router(stats_router)
 app.include_router(vacancies_router)
 app.include_router(sources_router)
 app.include_router(assessments_router)

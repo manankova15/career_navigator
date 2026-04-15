@@ -36,7 +36,7 @@ def _format_vacancy(v: dict, pos: int, total: int) -> str:
     skills = (v.get("skills") or [])[:6]
     sal_from = v.get("salary_from")
     sal_to = v.get("salary_to")
-    currency = v.get("currency") or "RUB"
+    currency = v.get("salary_currency") or v.get("currency") or "RUB"
 
     salary_str = "Не указана"
     if sal_from or sal_to:

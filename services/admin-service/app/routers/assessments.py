@@ -7,18 +7,19 @@ from ..crud import log_action
 from ..database import get_db
 from ..proxy import get_assessments, publish_assessment
 from ..schemas import AdminActionResult, AssessmentPublish
-from ..security import get_actor_id, require_admin
+from ..security import get_actor_id, get_forward_authorization, require_admin
 
 router = APIRouter(prefix="/admin/assessments", tags=["admin-assessments"])
 
 
 @router.get("")
 async def list_assessments_admin(
+    authorization: str = Depends(get_forward_authorization),
     _admin_id: UUID = Depends(get_actor_id),
 ):
     """List all assessments including drafts."""
     try:
-        return await get_assessments()
+        return await get_assessments(authorization)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
@@ -31,10 +32,13 @@ async def toggle_publish(
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin),
     actor_id: UUID = Depends(get_actor_id),
+    authorization: str = Depends(get_forward_authorization),
 ):
     """Publish or unpublish an assessment."""
     try:
-        await publish_assessment(str(assessment_id), payload.is_published)
+        await publish_assessment(
+            authorization, str(assessment_id), payload.is_published
+        )
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 

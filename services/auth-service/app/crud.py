@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -166,3 +167,75 @@ def get_user_primary_email(db: Session, user_id: UUID) -> str | None:
         .first()
     )
     return identity.provider_subject if identity else None
+
+
+def count_all_users(db: Session) -> int:
+    return db.query(func.count(User.id)).scalar() or 0
+
+
+def list_users_admin(
+    db: Session, offset: int, limit: int
+) -> tuple[list[User], int]:
+    total = count_all_users(db)
+    users = (
+        db.query(User)
+        .order_by(User.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return users, total
+
+
+def create_admin_user(db: Session, full_name: str, email: str, password: str) -> User:
+    """Создать пользователя только с ролью admin (без роли user)."""
+    if get_identity_by_email(db, email):
+        raise ValueError("Email already registered")
+
+    user = User(full_name=full_name)
+    db.add(user)
+    db.flush()
+
+    identity = UserIdentity(
+        user_id=user.id,
+        provider="email",
+        provider_subject=email.lower(),
+        password_hash=hash_password(password),
+        is_verified=True,
+    )
+    db.add(identity)
+
+    admin_role = get_role_by_name(db, "admin")
+    if not admin_role:
+        raise RuntimeError("Role 'admin' is missing from database (run migrations).")
+    db.add(UserRole(user_id=user.id, role_id=admin_role.id))
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def assign_admin_role_by_email(db: Session, email: str) -> User | None:
+    """Выдать роль admin существующему пользователю по email."""
+    identity = get_identity_by_email(db, email)
+    if not identity:
+        return None
+    user = get_user_by_id(db, identity.user_id)
+    if not user:
+        return None
+    admin_role = get_role_by_name(db, "admin")
+    if not admin_role:
+        raise RuntimeError("Role 'admin' is missing from database.")
+    exists = (
+        db.query(UserRole)
+        .filter(
+            UserRole.user_id == user.id,
+            UserRole.role_id == admin_role.id,
+        )
+        .first()
+    )
+    if not exists:
+        db.add(UserRole(user_id=user.id, role_id=admin_role.id))
+        db.commit()
+    db.refresh(user)
+    return user

@@ -27,26 +27,70 @@ from ..schemas import (
 router = APIRouter(tags=["vacancies"])
 
 
+def _split_csv(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [x.strip() for x in value.split(",") if x.strip()]
+
+
 # ── Public search ────────────────────────────────────────────────────────────
 
 @router.get("/vacancies", response_model=VacancyPage)
 async def search(
-    q: str | None = Query(None, description="Full-text query"),
-    location: str | None = Query(None),
-    seniority: str | None = Query(None),
+    query: str | None = Query(None, description="Поиск по title, company, description, skills"),
+    title: str | None = Query(None, description="Legacy: подстрока в названии"),
+    q: str | None = Query(None, description="Legacy: полнотекстовый поиск"),
+    profession_area: str | None = Query(
+        None,
+        description="CSV: it,analytics,finance",
+    ),
+    specialization: str | None = Query(None),
+    city: str | None = Query(None),
+    country: str | None = Query(None),
+    location: str | None = Query(None, description="Alias для city (совместимость)"),
+    work_format: str | None = Query(None, description="CSV: remote,hybrid,office,field"),
+    employment_type: str | None = Query(
+        None,
+        description="CSV: full_time,part_time,contract,project,internship,temporary,volunteering",
+    ),
+    schedule_type: str | None = Query(
+        None,
+        description="CSV: full_day,flexible,shift,weekend,watch,custom",
+    ),
+    experience_level: str | None = Query(None),
+    seniority: str | None = Query(None, description="Legacy: junior/middle/…"),
     salary_from: int | None = Query(None, ge=0),
-    skills: list[str] = Query(default=[]),
+    salary_currency: str | None = Query(None),
+    has_salary: bool | None = Query(None),
+    skills: str | None = Query(None, description="CSV: Python,SQL (логика ИЛИ)"),
+    english_level: str | None = Query(None),
+    education_level: str | None = Query(None),
+    published_within: str | None = Query(None, description="1d, 3d, 7d, 30d"),
     source_id: UUID | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     params = VacancySearchParams(
+        query=query or None,
+        title=title or None,
         q=q or None,
-        location=location or None,
+        profession_area=_split_csv(profession_area),
+        specialization=specialization or None,
+        city=(city or location or None),
+        country=country or None,
+        work_format=_split_csv(work_format),
+        employment_type=_split_csv(employment_type),
+        schedule_type=_split_csv(schedule_type),
+        experience_level=experience_level or None,
         seniority=seniority or None,
         salary_from=salary_from,
-        skills=skills,
+        salary_currency=salary_currency or None,
+        has_salary=has_salary,
+        skills=_split_csv(skills),
+        english_level=english_level or None,
+        education_level=education_level or None,
+        published_within=published_within or None,
         source_id=source_id,
         page=page,
         page_size=page_size,

@@ -6,3 +6,4 @@ pydantic>=2.9
 pydantic-settings>=2.4
 python-jose[cryptography]>=3.3
 tenacity>=8.3
+telethon>=1.36

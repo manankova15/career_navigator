@@ -1,7 +1,12 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from ..crud import get_dau_series, get_product_metrics, get_user_assessment_stats, get_user_events
+from ..crud import (
+    count_user_events_by_type,
+    get_dau_series,
+    get_product_metrics,
+    get_user_assessment_stats,
+)
 from ..database import get_db
 from ..schemas import AssessmentStatOut, DashboardOut, DauPoint, ProductMetricsOut, UserProgressOut
 from ..security import get_current_user_id, require_admin
@@ -16,9 +21,8 @@ def my_progress(
 ):
     """Return the authenticated user's assessment progress and activity summary."""
     stats = get_user_assessment_stats(db, user_id)
-    events = get_user_events(db, user_id)
-    vacancy_views = sum(1 for e in events if e.event_type == "vacancy_viewed")
-    rec_clicks = sum(1 for e in events if e.event_type == "recommendation_clicked")
+    vacancy_views = count_user_events_by_type(db, user_id, "vacancy_viewed")
+    rec_clicks = count_user_events_by_type(db, user_id, "recommendation_clicked")
     best = max((s.best_percentage for s in stats), default=0.0)
     avg = round(sum(s.avg_percentage for s in stats) / len(stats), 2) if stats else 0.0
     total_attempts = sum(s.attempts_count for s in stats)

@@ -19,7 +19,8 @@ export interface AssessmentDetail extends AssessmentSummary {
 
 export interface AssessmentItem {
   id: string;
-  order: number;
+  order?: number;
+  position?: number;
   mode: string;             // "quiz" | "multi_select" | "short_text" | "case"
   prompt: string;
   options?: { id: string; text: string }[];
@@ -42,6 +43,7 @@ export interface AnswerResult {
 export interface AttemptResult {
   id: string;
   assessment_id: string;
+  assessment_title?: string | null;
   status: string;
   earned_score: number;
   max_score: number;
@@ -53,6 +55,7 @@ export interface AttemptResult {
   created_at: string;
   completed_at?: string | null;
   answers?: AnswerResult[];
+  progress_answers?: { item_id: string; selected_option_ids?: string[]; text_answer?: string | null }[];
 }
 
 export async function listAssessments(): Promise<AssessmentSummary[]> {
@@ -64,15 +67,37 @@ export async function getAssessment(id: string): Promise<AssessmentDetail> {
   return api.get<AssessmentDetail>(`/assessments/${id}`);
 }
 
-// assessment-service submits all answers at once — no separate "start" needed
-export async function submitAttempt(
-  assessmentId: string,
-  answers: { item_id: string; selected_option_ids?: string[]; text_answer?: string }[]
-): Promise<AttemptResult> {
-  return api.post<AttemptResult>(`/assessments/${assessmentId}/submit`, { answers });
+export async function getAttempt(attemptId: string): Promise<AttemptResult> {
+  return api.get<AttemptResult>(`/attempts/${attemptId}`);
 }
 
-export async function myAttempts(): Promise<AttemptResult[]> {
-  const data = await api.get<{ items: AttemptResult[] }>("/attempts/me?page_size=50");
+/** Start an assessment (creates in_progress attempt for save/resume). */
+export async function startAttempt(assessmentId: string): Promise<AttemptResult> {
+  return api.post<AttemptResult>(`/assessments/${assessmentId}/start`, {});
+}
+
+/** Save partial answers for in-progress attempt. */
+export async function saveAttemptProgress(
+  attemptId: string,
+  answers: { item_id: string; selected_option_ids?: string[]; text_answer?: string | null }[]
+): Promise<AttemptResult> {
+  return api.patch<AttemptResult>(`/attempts/${attemptId}/progress`, { answers });
+}
+
+export async function submitAttempt(
+  assessmentId: string,
+  answers: { item_id: string; selected_option_ids?: string[]; text_answer?: string }[],
+  attemptId?: string | null
+): Promise<AttemptResult> {
+  return api.post<AttemptResult>(`/assessments/${assessmentId}/submit`, {
+    answers,
+    attempt_id: attemptId ?? undefined,
+  });
+}
+
+export async function myAttempts(assessmentId?: string | null): Promise<AttemptResult[]> {
+  const params = new URLSearchParams({ page_size: "50" });
+  if (assessmentId) params.set("assessment_id", assessmentId);
+  const data = await api.get<{ items: AttemptResult[] }>(`/attempts/me?${params.toString()}`);
   return data.items ?? [];
 }

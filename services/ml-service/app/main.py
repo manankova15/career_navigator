@@ -1,18 +1,32 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
+from .ranking.model_loader import load_ranker
 from .routers.ml import router as ml_router
+from .training.trainer import ensure_trained_model
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ensure_trained_model(settings.model_dir)
+    app.state.rank_booster = load_ranker(settings.model_dir)
+    yield
+    app.state.rank_booster = None
+
 
 app = FastAPI(
     title=settings.service_name,
     version=settings.version,
     description=(
         "Stateless ML computation service. "
-        "Phase 1: content-based scoring and skill-gap analysis."
+        "Content-based scoring, hybrid LightGBM ranking, skill-gap analysis."
     ),
     docs_url="/docs",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -32,7 +46,7 @@ async def health():
         "status": "ok",
         "service": settings.service_name,
         "version": settings.version,
-        "algorithm": "content_v1",
+        "algorithm": "hybrid_lgb_v1",
         "weights": {
             "skills": settings.weight_skills,
             "location": settings.weight_location,

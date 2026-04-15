@@ -56,7 +56,7 @@ def normalize_single(self, raw_id: str):
 
     try:
         if "hh.ru" in source_name.lower():
-            canonical_data = normalize_hh_item(raw.payload, str(raw.source_id))
+            canonical_data = normalize_hh_item(raw.payload, str(raw.source_id), source_name)
         else:
             logger.warning("No normalizer for source %s", source_name)
             _mark_processed(raw_id)
@@ -74,8 +74,7 @@ def normalize_single(self, raw_id: str):
 
             if existing:
                 for key, value in canonical_data.items():
-                    if value is not None:
-                        setattr(existing, key, value)
+                    setattr(existing, key, value)
                 existing.updated_at = datetime.utcnow()
             else:
                 vacancy = CanonicalVacancy(**canonical_data)

@@ -7,3 +7,5 @@ alembic>=1.13
 psycopg2-binary>=2.9
 python-jose[cryptography]>=3.3
 python-multipart>=0.0.9
+celery[redis]>=5.4
+redis>=5.0

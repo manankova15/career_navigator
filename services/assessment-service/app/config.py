@@ -12,6 +12,9 @@ class AssessmentSettings(BaseSettings):
     # Max attempts a user may have per assessment (0 = unlimited)
     max_attempts_per_assessment: int = 0
 
+    analytics_service_url: str = "http://analytics-service:8011"
+    internal_token: str = "change_me_internal_token"
+
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
 

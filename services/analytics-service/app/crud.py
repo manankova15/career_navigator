@@ -78,6 +78,16 @@ def get_user_events(db: Session, user_id: UUID, event_type: str | None = None,
     return q.order_by(UserEvent.occurred_at.desc()).limit(limit).all()
 
 
+def count_user_events_by_type(db: Session, user_id: UUID, event_type: str) -> int:
+    """Общее количество событий данного типа для пользователя (для счётчиков на дашборде)."""
+    return (
+        db.query(func.count(UserEvent.id))
+        .filter(UserEvent.user_id == user_id, UserEvent.event_type == event_type)
+        .scalar()
+        or 0
+    )
+
+
 def get_product_metrics(db: Session) -> dict:
     total_events = db.query(func.count(UserEvent.id)).scalar() or 0
     total_users = db.query(func.count(func.distinct(UserEvent.user_id))).scalar() or 0

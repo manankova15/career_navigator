@@ -22,6 +22,11 @@ class RecSettings(BaseSettings):
     # Store top-N recommendations per session
     top_n_store: int = 50
 
+    # Scheduled refresh (same DB as profiles — no JWT required)
+    enable_scheduled_refresh: bool = True
+    refresh_interval_hours: float = 1.0
+    max_users_per_refresh: int = 300
+
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
 

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
+from .routers.admin_users import router as admin_users_router
 from .routers.auth import router as auth_router
 
 app = FastAPI(
@@ -20,6 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(admin_users_router)
 
 
 @app.get("/health", tags=["meta"])

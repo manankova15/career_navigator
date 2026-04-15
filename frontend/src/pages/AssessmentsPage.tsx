@@ -100,13 +100,15 @@ export default function AssessmentsPage() {
               {last && (
                 <div style={{
                   fontSize: 12, borderRadius: 10, padding: "8px 12px",
-                  background: last.passed ? "#ECFDF5" : "#FFFBEB",
-                  color: last.passed ? "#059669" : "#D97706",
+                  background: last.status === "in_progress" ? "#F0F4FF" : last.passed ? "#ECFDF5" : "#FFFBEB",
+                  color: last.status === "in_progress" ? "#3B5BDB" : last.passed ? "#059669" : "#D97706",
                   border: "1.5px solid",
-                  borderColor: last.passed ? "#A7F3D0" : "#FDE68A",
+                  borderColor: last.status === "in_progress" ? "#C7D2FE" : last.passed ? "#A7F3D0" : "#FDE68A",
                   fontWeight: 500,
                 }}>
-                  {last.passed ? "✓" : "○"} Последняя попытка: {last.percentage.toFixed(0)}% — {last.passed ? "Пройдено" : "Не пройдено"}
+                  {last.status === "in_progress"
+                    ? "⏳ В процессе"
+                    : `${last.passed ? "✓" : "○"} Последняя попытка: ${last.percentage.toFixed(0)}% — ${last.passed ? "Пройдено" : "Не пройдено"}`}
                 </div>
               )}
 
@@ -123,7 +125,7 @@ export default function AssessmentsPage() {
                 onMouseEnter={e => { e.currentTarget.style.background = "#2F4AC2"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(59,91,219,0.3)"; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "#3B5BDB"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(59,91,219,0.2)"; }}
               >
-                {last ? "Пройти снова" : "Начать →"}
+                {last?.status === "in_progress" ? "Продолжить" : last ? "Пройти снова" : "Начать →"}
               </button>
             </div>
           );
