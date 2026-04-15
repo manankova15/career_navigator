@@ -1,110 +1,51 @@
 # Career Navigator
 
-Career Navigator is an HR service for personalized career navigation. The project combines vacancy aggregation, recommendation pipelines, interview preparation, analytics, and a Telegram interface in one platform.
+Веб‑платформа для карьерной навигации: профиль и навыки, вакансии, рекомендации и анализ «пробелов» по навыкам, оценки, уведомления, админка; часть сценариев можно вести через Telegram‑бота.
 
-## Repository layout
+## Из чего состоит репозиторий
 
-- `frontend/` — React web client.
-- `services/` — user-facing and domain microservices.
-- `workers/` — ingestion and background pipelines.
-- `packages/common/` — shared Python primitives.
-- `packages/events/` — event schemas and message contracts.
-- `infra/` — local infrastructure manifests.
-- `docs/` — architecture, security, data, and API documentation.
+- `frontend/` — основной React‑клиент (Vite).
+- `admin-frontend/` — панель администратора.
+- `services/` — backend‑сервисы (auth, profile, источники вакансий, вакансии, ML, рекомендации, API‑шлюз, оценки, аналитика, уведомления, админ‑API, бот).
+- `workers/ingestion-workers/` — фоновая загрузка и обработка вакансий.
+- `packages/common/`, `packages/events/` — общий Python‑код и контракты событий.
+- `infra/` — манифесты инфраструктуры.
+- `docs/` — архитектура и описание API.
 
-## Core capabilities
+## Что нужно для запуска
 
-- Email and Telegram-based identity flows.
-- Career profile and skill inventory.
-- Vacancy ingestion, normalization, deduplication, and archival.
-- Personal recommendations and skill-gap analysis.
-- Interview assessments and progress tracking.
-- Notifications and analytics.
-- Administrative tooling and audit trail.
+- [Podman](https://podman.io/) 4.1+ с поддержкой `podman compose` **или** Docker Compose — в `Makefile` по умолчанию `COMPOSE ?= podman compose`; при Docker: `make COMPOSE="docker compose" dev-up`.
+- Python 3.12+ и Node.js 20+ — для локальных скриптов, тестов и фронтенда вне контейнеров.
 
-## Requirements
+На macOS с Podman перед первым запуском: `podman machine init` и `podman machine start`.
 
-- [Podman](https://podman.io/) 4.1+ (with `podman compose` support)
-- [podman-compose](https://github.com/containers/podman-compose) — install via `pip install podman-compose`
-- Python 3.12+
-- Node.js 20+
-
-> **macOS:** initialise the Podman VM before first use:
-> ```bash
-> podman machine init
-> podman machine start
-> ```
-
-## Quick start
+## Быстрый старт
 
 ```bash
-# 1. Copy environment template
-cp .env.example .env
-# Edit .env and set real secrets (JWT_SECRET, passwords, etc.)
+make bootstrap          # копирует .env из .env.example, если .env ещё нет
+# при необходимости отредактируйте .env (секреты, SMTP, Telegram и т.д.)
 
-# 2. Build and start all services
 make dev-build
 make dev-up
-
-# 3. Follow logs
-make dev-logs
+make dev-logs           # опционально: логи всех сервисов
 ```
 
-After startup the following ports are exposed:
+После подъёма контейнеров:
 
-| Service | URL |
-|---|---|
-| auth-service | http://localhost:8001/docs |
-| profile-service | http://localhost:8002/docs |
-| source-service | http://localhost:8003/docs |
-| vacancy-service | http://localhost:8004/docs |
-| PostgreSQL | localhost:5432 |
-| Redis | localhost:6379 |
-| RabbitMQ UI | http://localhost:15672 |
-| MinIO console | http://localhost:9001 |
+- пользовательский UI: http://localhost:3000  
+- админка: http://localhost:3001  
+- API через шлюз (Swagger): http://localhost:8000/docs  
 
-## Infrastructure only (no service images)
+Отдельные сервисы (для отладки): `auth-service` — 8001, `profile-service` — 8002, `source-service` — 8003, `vacancy-service` — 8004, `recommendation-service` — 8005, `ml-service` — 8006, `assessment-service` — 8007, `notification-service` — 8008, `bot-service` — 8009, `admin-service` — 8010, `analytics-service` — 8011. Инфраструктура: PostgreSQL 5432, Redis 6379, RabbitMQ (в т.ч. UI 15672), ClickHouse 8123, MinIO (консоль 9001).
+
+Миграции БД: `make migrate-all`.
+
+Только инфраструктура: `make infra-up` / `make infra-down`.
+
+## Фронтенд без Docker
+
+На `http://localhost:8000` должен отвечать `api-gateway` (проще всего - уже поднятый стек: `make dev-up`).
 
 ```bash
-make infra-up          # starts postgres, redis, rabbitmq, clickhouse, minio
-make infra-down        # stops infrastructure
+make frontend-dev     # из корня: npm install && npm run dev в frontend/
 ```
-
-## Useful make targets
-
-```bash
-make dev-build         # rebuild all service images
-make dev-up            # start all containers in background
-make dev-down          # stop and remove containers
-make dev-logs          # follow all logs
-make dev-logs s=auth-service   # follow one service
-make migrate-all       # run alembic migrations in all services
-make lint              # Python syntax check
-make typecheck         # TypeScript check
-make clean             # remove __pycache__ / .pyc
-```
-
-## Local development standards
-
-- Never commit `.env` files or tokens.
-- Keep service contracts in `docs/api-spec/`.
-- Use structured logs and health endpoints in every service.
-- Prefer backward-compatible event changes.
-
-## Services
-
-| Service | Port | Description |
-|---|---|---|
-| `api-gateway` | 8000 | BFF / reverse proxy (planned) |
-| `auth-service` | 8001 | Registration, login, JWT, RBAC |
-| `profile-service` | 8002 | Career profile, skills, experience |
-| `source-service` | 8003 | Vacancy source configs |
-| `vacancy-service` | 8004 | Canonical vacancies, FTS search |
-| `recommendation-service` | 8005 | Personalised recommendations (planned) |
-| `ml-service` | 8006 | Skill-gap analysis, ML models (planned) |
-| `assessment-service` | 8007 | Quizzes and interview tasks (planned) |
-| `analytics-service` | 8008 | Metrics and ClickHouse sinks (planned) |
-| `notification-service` | 8009 | Email and Telegram delivery (planned) |
-| `admin-service` | 8010 | Admin panel and audit log (planned) |
-| `bot-service` | — | Telegram bot via aiogram (planned) |
-| `ingestion-workers` | — | Celery fetch/normalize/dedup pipeline |
