@@ -40,14 +40,24 @@ def fetch_all_sources(self):
     time_limit=3600,
 )
 def fetch_source(self, source_id: str, max_vacancies: int | None = None):
-    """Fetch a single source and persist raw payloads (HH) или canonical (Telegram)."""
+    """Fetch a single source and persist raw payloads (HH) или canonical (Telegram).
+
+    Возвращает словарь со статистикой запуска, который Celery сохраняет
+    в result backend (Redis) — это позволяет админке показывать статус.
+    """
     cap = _effective_max_vacancies(max_vacancies)
 
     with get_db_ctx() as db:
         source = db.query(VacancySource).filter(VacancySource.id == source_id).first()
         if not source or not source.enabled:
             logger.warning("Source %s not found or disabled", source_id)
-            return
+            return {
+                "source_id": source_id,
+                "status": "skipped",
+                "reason": "source_not_found_or_disabled",
+                "new_vacancies": 0,
+                "max_vacancies": cap,
+            }
 
         cfg = source.config or {}
         source_type = source.source_type
@@ -61,17 +71,48 @@ def fetch_source(self, source_id: str, max_vacancies: int | None = None):
         cap,
     )
 
-    if source_type == "api" and "hh.ru" in source_name.lower():
-        _fetch_hh(source_id, cfg, cap)
-    elif source_type == "telegram":
-        from ..adapters.telegram_fetch import fetch_telegram_source
+    new_vacancies = 0
+    status = "success"
+    reason: str | None = None
+    try:
+        if source_type == "api" and "hh.ru" in source_name.lower():
+            new_vacancies = _fetch_hh(source_id, cfg, cap)
+        elif source_type == "telegram":
+            from ..adapters.telegram_fetch import fetch_telegram_source
 
-        fetch_telegram_source(str(source_id), cfg, source_name, cap)
-    else:
-        logger.warning("No adapter for source_type=%s name=%s", source_type, source_name)
+            new_vacancies = fetch_telegram_source(
+                str(source_id), cfg, source_name, cap
+            )
+        else:
+            logger.warning(
+                "No adapter for source_type=%s name=%s", source_type, source_name
+            )
+            status = "skipped"
+            reason = f"no_adapter_for_type:{source_type}"
+    except Exception as exc:
+        logger.exception("Fetch failed for source=%s: %s", source_name, exc)
+        return {
+            "source_id": source_id,
+            "source_name": source_name,
+            "source_type": source_type,
+            "status": "failed",
+            "error": str(exc),
+            "new_vacancies": new_vacancies,
+            "max_vacancies": cap,
+        }
+
+    return {
+        "source_id": source_id,
+        "source_name": source_name,
+        "source_type": source_type,
+        "status": status,
+        "reason": reason,
+        "new_vacancies": int(new_vacancies or 0),
+        "max_vacancies": cap,
+    }
 
 
-def _fetch_hh(source_id: str, cfg: dict, max_vacancies: int):
+def _fetch_hh(source_id: str, cfg: dict, max_vacancies: int) -> int:
     query = cfg.get("default_query", "python")
     area_id = cfg.get("area_id", 1)
     per_page = min(int(cfg.get("per_page", 100)), 100)
@@ -119,3 +160,4 @@ def _fetch_hh(source_id: str, cfg: dict, max_vacancies: int):
         db.commit()
 
     logger.info("hh.ru source=%s: %d new raw vacancies saved (cap=%d)", source_id, new_count, max_vacancies)
+    return new_count

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { logout } from "../api/auth";
@@ -16,6 +16,99 @@ type SourceRow = {
   enabled: boolean;
 };
 
+type SyncTriggerResponse = {
+  source_id: string;
+  status: string;
+  message: string;
+  task_id?: string | null;
+  max_vacancies?: number | null;
+};
+
+type SyncJobResult = {
+  source_id?: string;
+  source_name?: string;
+  source_type?: string;
+  status?: string;
+  new_vacancies?: number;
+  max_vacancies?: number;
+  reason?: string | null;
+  error?: string | null;
+};
+
+type SyncJobStatus = {
+  task_id: string;
+  state: string;
+  ready: boolean;
+  result?: SyncJobResult | null;
+  error?: string | null;
+};
+
+type SyncJob = SyncJobStatus & {
+  max_vacancies_requested?: number | null;
+  started_at: number;
+  finished_at?: number;
+};
+
+const POLL_INTERVAL_MS = 2500;
+
+function formatDuration(ms: number): string {
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec} с`;
+  const min = Math.floor(sec / 60);
+  const rest = sec % 60;
+  return `${min} мин ${rest} с`;
+}
+
+function describeJob(job: SyncJob): { label: string; color: string; detail: string } {
+  if (job.ready) {
+    if (job.state === "SUCCESS") {
+      const r = job.result ?? {};
+      const added = typeof r.new_vacancies === "number" ? r.new_vacancies : 0;
+      const cap = typeof r.max_vacancies === "number" ? r.max_vacancies : job.max_vacancies_requested ?? undefined;
+      const status = r.status ?? "success";
+      if (status === "skipped") {
+        return {
+          label: "Пропущено",
+          color: "#b45309",
+          detail: r.reason ? `причина: ${r.reason}` : "нет адаптера для этого источника",
+        };
+      }
+      if (status === "failed") {
+        return {
+          label: "Ошибка",
+          color: "#b91c1c",
+          detail: r.error ?? "неизвестная ошибка",
+        };
+      }
+      const duration = job.finished_at && job.started_at ? ` за ${formatDuration(job.finished_at - job.started_at)}` : "";
+      const capPart = cap ? `, лимит ${cap}` : "";
+      return {
+        label: "Готово",
+        color: "#15803d",
+        detail: `добавлено ${added}${capPart}${duration}`,
+      };
+    }
+    return {
+      label: "Ошибка",
+      color: "#b91c1c",
+      detail: job.error ?? `состояние ${job.state}`,
+    };
+  }
+
+  const runningFor = formatDuration(Date.now() - job.started_at);
+  switch (job.state) {
+    case "PENDING":
+      return { label: "В очереди", color: "#64748b", detail: `ждёт воркер · ${runningFor}` };
+    case "RECEIVED":
+    case "STARTED":
+      return { label: "Выполняется", color: "#2563eb", detail: `worker обрабатывает · ${runningFor}` };
+    case "RETRY":
+      return { label: "Повтор", color: "#b45309", detail: `повторная попытка · ${runningFor}` };
+    default:
+      return { label: job.state || "В работе", color: "#2563eb", detail: runningFor };
+  }
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -27,6 +120,10 @@ export default function DashboardPage() {
   const [testTitle, setTestTitle] = useState("Новый тест");
   const [testTopic, setTestTopic] = useState("soft_skills");
   const [testMsg, setTestMsg] = useState("");
+  const [jobs, setJobs] = useState<Record<string, SyncJob>>({});
+  const [, setTick] = useState(0);
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
 
   const load = useCallback(async () => {
     setErr("");
@@ -48,11 +145,55 @@ export default function DashboardPage() {
     void load();
   }, [load, navigate]);
 
+  // Периодически опрашиваем статус активных задач дозагрузки.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const current = jobsRef.current;
+      const activeEntries = Object.entries(current).filter(([, j]) => !j.ready);
+      if (activeEntries.length === 0) {
+        // пересчитать UI, чтобы таймеры бегущих задач освежились (даже если их уже нет)
+        setTick((t) => t + 1);
+        return;
+      }
+
+      const updated: Record<string, SyncJob> = {};
+      await Promise.all(
+        activeEntries.map(async ([sourceId, job]) => {
+          try {
+            const status = await api.get<SyncJobStatus>(`/admin/sources/sync/jobs/${job.task_id}`);
+            updated[sourceId] = {
+              ...job,
+              ...status,
+              finished_at: status.ready ? Date.now() : job.finished_at,
+            };
+          } catch (e) {
+            updated[sourceId] = {
+              ...job,
+              ready: true,
+              state: "FAILURE",
+              error: e instanceof Error ? e.message : "Не удалось получить статус",
+              finished_at: Date.now(),
+            };
+          }
+        }),
+      );
+
+      if (Object.keys(updated).length > 0) {
+        setJobs((prev) => ({ ...prev, ...updated }));
+      } else {
+        setTick((t) => t + 1);
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, []);
+
   async function triggerSync(sourceId: string) {
     setSyncing(sourceId);
     setErr("");
     try {
       const trimmed = maxVacanciesInput.trim();
+      let requestedMax: number | null = null;
       const body =
         trimmed === ""
           ? {}
@@ -61,10 +202,22 @@ export default function DashboardPage() {
               if (Number.isNaN(n) || n < 1 || n > 5000) {
                 throw new Error("Лимит вакансий: число от 1 до 5000 или пусто для значения по умолчанию.");
               }
+              requestedMax = n;
               return { max_vacancies: n };
             })();
-      await api.post(`/admin/sources/${sourceId}/sync`, body);
-      setTestMsg("Задача дозагрузки поставлена в очередь (Celery).");
+      const resp = await api.post<SyncTriggerResponse>(`/admin/sources/${sourceId}/sync`, body);
+      if (!resp?.task_id) {
+        throw new Error("Сервис не вернул task_id — обновите admin-service/source-service до последней версии.");
+      }
+      const newJob: SyncJob = {
+        task_id: resp.task_id,
+        state: "PENDING",
+        ready: false,
+        max_vacancies_requested: requestedMax ?? resp.max_vacancies ?? null,
+        started_at: Date.now(),
+      };
+      setJobs((prev) => ({ ...prev, [sourceId]: newJob }));
+      setTestMsg(`Задача дозагрузки поставлена в очередь (task_id=${resp.task_id}).`);
       await load();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Ошибка sync");
@@ -185,34 +338,55 @@ export default function DashboardPage() {
                   <th style={{ padding: 10 }}>Название</th>
                   <th style={{ padding: 10 }}>Тип</th>
                   <th style={{ padding: 10 }}>Вкл.</th>
+                  <th style={{ padding: 10 }}>Статус дозагрузки</th>
                   <th style={{ padding: 10 }} />
                 </tr>
               </thead>
               <tbody>
-                {sources.map((s) => (
-                  <tr key={s.id} style={{ borderTop: "1px solid #e2e8f0" }}>
-                    <td style={{ padding: 10 }}>{s.name}</td>
-                    <td style={{ padding: 10 }}>{s.source_type}</td>
-                    <td style={{ padding: 10 }}>{s.enabled ? "да" : "нет"}</td>
-                    <td style={{ padding: 10 }}>
-                      <button
-                        type="button"
-                        disabled={!s.enabled || syncing === s.id}
-                        onClick={() => void triggerSync(s.id)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 6,
-                          border: "none",
-                          background: s.enabled ? "#2563eb" : "#94a3b8",
-                          color: "#fff",
-                          cursor: s.enabled ? "pointer" : "not-allowed",
-                        }}
-                      >
-                        {syncing === s.id ? "…" : "Дозагрузить"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {sources.map((s) => {
+                  const job = jobs[s.id];
+                  const info = job ? describeJob(job) : null;
+                  const active = Boolean(job && !job.ready);
+                  return (
+                    <tr key={s.id} style={{ borderTop: "1px solid #e2e8f0" }}>
+                      <td style={{ padding: 10 }}>{s.name}</td>
+                      <td style={{ padding: 10 }}>{s.source_type}</td>
+                      <td style={{ padding: 10 }}>{s.enabled ? "да" : "нет"}</td>
+                      <td style={{ padding: 10 }}>
+                        {info ? (
+                          <div>
+                            <div style={{ color: info.color, fontWeight: 600 }}>{info.label}</div>
+                            <div style={{ fontSize: 12, color: "#64748b" }}>{info.detail}</div>
+                            {job?.task_id ? (
+                              <div style={{ fontSize: 11, color: "#94a3b8", fontFamily: "monospace" }}>
+                                task_id: {job.task_id.slice(0, 8)}…
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span style={{ color: "#94a3b8" }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: 10 }}>
+                        <button
+                          type="button"
+                          disabled={!s.enabled || syncing === s.id || active}
+                          onClick={() => void triggerSync(s.id)}
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: 6,
+                            border: "none",
+                            background: !s.enabled || active ? "#94a3b8" : "#2563eb",
+                            color: "#fff",
+                            cursor: !s.enabled || active ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {syncing === s.id ? "…" : active ? "Выполняется…" : "Дозагрузить"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

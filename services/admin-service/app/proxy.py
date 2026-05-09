@@ -93,6 +93,14 @@ async def trigger_source_sync(
     )
 
 
+async def get_source_sync_job(authorization: str, task_id: str) -> dict:
+    """Проксирование чтения статуса ingestion-задачи по task_id."""
+    return await proxy_get(
+        f"{settings.source_service_url}/sources/sync/jobs/{task_id}",
+        authorization,
+    )
+
+
 async def get_assessments(
     authorization: str, page: int = 1, page_size: int = 20
 ) -> dict:

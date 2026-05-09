@@ -1,14 +1,19 @@
 """
 Recommendation orchestrator.
 
-Flow:
-  1. Fetch user's career profile + skills + preferences (profile-service or DB).
-  2. Fetch candidate vacancies filtered by preferred locations (vacancy-service).
-  3. Call ml-service /ml/score → content-based scores.
-  4. Call ml-service /ml/rank → hybrid LightGBM re-ranking (fallback: content order).
-  5. Persist a new RecommendationSession + top-N VacancyRecommendations.
-  6. Call ml-service /ml/skill-gap on the top recommendations.
-  7. Persist SkillGapRecords for this session.
+Refresh flow:
+  1. Fetch profile (skills + preferences + likes enrichment).
+  2. Fetch candidate vacancies from vacancy-service.
+  3. Call ml-service /ml/score — purely deterministic AHP-weighted content match.
+  4. Persist the session: VacancyRecommendation rows with `base_score` (content
+     match) and `features` JSONB used later for live re-scoring.
+  5. Apply personalization on top of the saved base_score and write the
+     personalized value into `score` so the first /me read already reflects it.
+  6. Call ml-service /ml/skill-gap on the top vacancies and persist results.
+
+Read flow (/recommendations/me): see routers.recommendations — it always
+re-scores live so that a new like, dislike or feedback event changes the
+match percentages on the very next request.
 """
 
 from __future__ import annotations
@@ -21,15 +26,15 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from .client import (
-    call_rank,
     call_skill_gap,
     call_scoring,
     fetch_candidate_vacancies,
     fetch_user_profile,
 )
 from .config import settings
-from .crud import create_session, get_active_likes, save_skill_gap
+from .crud import create_session, get_active_likes, save_skill_gap, update_scores_in_place
 from .models import RecommendationSession
+from .personalization import build_affinity, score_with_personalization
 from .profile_loader import load_profile_bundle
 
 logger = logging.getLogger(__name__)
@@ -99,44 +104,23 @@ def _vacancy_to_input(v: dict) -> dict:
     }
 
 
-def _vacancy_fallback_for_rank(r: dict) -> dict:
+def _scored_to_db_item(r: dict) -> dict:
+    features = dict(r.get("features") or {})
     return {
         "vacancy_id": r["vacancy_id"],
-        "title": "",
-        "company": "",
-        "location": None,
-        "salary_from": None,
-        "salary_to": None,
-        "seniority": None,
-        "skills": [],
-        "employment_type": None,
-        "description": "",
-        "published_at": None,
+        "base_score": r["score"],
+        "score": r["score"],   # will be overwritten after personalization
+        "skill_score": r.get("skill_score", 0),
+        "role_score": r.get("role_score", 0),
+        "location_score": r.get("location_score", 0),
+        "salary_score": r.get("salary_score", 0),
+        "seniority_score": r.get("seniority_score", 0),
+        "format_score": r.get("format_score", 0),
+        "matched_skills": r.get("matched_skills", []),
+        "missing_skills": r.get("missing_skills", []),
+        "reasons": list(r.get("reasons") or []),
+        "features": features,
     }
-
-
-def _merge_rank_into_session_items(rank_results: list[dict]) -> list[dict]:
-    out: list[dict] = []
-    for r in rank_results:
-        reasons = list(r.get("reasons") or [])
-        expl = r.get("rank_explanation") or []
-        if expl:
-            reasons = reasons + [str(x) for x in expl]
-        out.append(
-            {
-                "vacancy_id": r["vacancy_id"],
-                "score": r["score"],
-                "skill_score": r.get("skill_score", 0),
-                "location_score": r.get("location_score", 0),
-                "salary_score": r.get("salary_score", 0),
-                "seniority_score": r.get("seniority_score", 0),
-                "matched_skills": r.get("matched_skills", []),
-                "missing_skills": r.get("missing_skills", []),
-                "reasons": reasons,
-                "ml_score": r.get("ml_score"),
-            }
-        )
-    return out
 
 
 def run_recommendation_with_profile(
@@ -178,32 +162,10 @@ def run_recommendation_with_profile(
         )
 
     results = score_resp.get("results", [])
-    algorithm = score_resp.get("algorithm", "content_v1")
+    algorithm = score_resp.get("algorithm", "content_ahp_v2")
     total_scored = score_resp.get("total_scored", 0)
 
-    vac_by_id = {str(v["id"]): v for v in raw_vacancies}
-    rank_vacancies: list[dict] = []
-    for r in results:
-        vid = str(r["vacancy_id"])
-        raw = vac_by_id.get(vid)
-        rank_vacancies.append(_vacancy_to_input(raw) if raw else _vacancy_fallback_for_rank(r))
-
-    final_results: list[dict] = results
-    if results:
-        try:
-            rank_resp = call_rank(
-                {
-                    "profile": profile_input,
-                    "vacancies": rank_vacancies,
-                    "content_results": results,
-                }
-            )
-            final_results = rank_resp.get("results", results)
-            algorithm = rank_resp.get("algorithm", algorithm)
-        except Exception as exc:
-            logger.warning("ml-service /rank failed (using content order): %s", exc)
-
-    scored_items = _merge_rank_into_session_items(final_results)[: settings.top_n_store]
+    scored_items = [_scored_to_db_item(r) for r in results][: settings.top_n_store]
 
     session = create_session(
         db,
@@ -213,8 +175,24 @@ def run_recommendation_with_profile(
         scored_items=scored_items,
     )
 
-    top_vacancy_ids = {str(r["vacancy_id"]) for r in final_results[:30]}
-    top_vacancies_raw = [v for v in raw_vacancies if str(v["id"]) in top_vacancy_ids]
+    # ── Personalization pass ──
+    affinity = build_affinity(db, user_id)
+    personalized: dict[UUID, float] = {}
+    for rec in session.recommendations:
+        features = rec.features or {}
+        final, _boost, _direct = score_with_personalization(
+            affinity,
+            base_score=float(rec.base_score),
+            vacancy_id=rec.vacancy_id,
+            vacancy_skills=list(features.get("vacancy_skills") or []),
+            vacancy_title=features.get("vacancy_title") or "",
+        )
+        personalized[rec.id] = final
+    update_scores_in_place(db, personalized)
+
+    # ── Skill-gap on top-30 content vacancies (not personalized) ──
+    top_ids = {str(r["vacancy_id"]) for r in results[:30]}
+    top_vacancies_raw = [v for v in raw_vacancies if str(v["id"]) in top_ids]
     top_vacancy_inputs = [_vacancy_to_input(v) for v in top_vacancies_raw]
 
     if top_vacancy_inputs:
@@ -229,11 +207,12 @@ def run_recommendation_with_profile(
             logger.warning("Skill-gap call failed (non-fatal): %s", exc)
 
     logger.info(
-        "Recommendation session created: user=%s session=%s scored=%d algorithm=%s",
+        "Recommendation session created: user=%s session=%s scored=%d algorithm=%s signals=%d",
         user_id,
         session.id,
         total_scored,
         algorithm,
+        affinity.total_signals,
     )
     return session
 

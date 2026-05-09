@@ -53,6 +53,7 @@ backups/
 
 infra/docker/README.md
 docs/api-spec/README.md
+docs/architecture-diagram.puml
 
 scripts/.tg_session.session
 *.session

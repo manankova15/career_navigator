@@ -57,6 +57,12 @@ fastapi_app = FastAPI(
 )
 
 
+@fastapi_app.get("/", include_in_schema=False)
+async def root():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/docs")
+
+
 @fastapi_app.get("/health", tags=["meta"])
 async def health():
     return {"status": "ok", "service": settings.service_name, "version": settings.version}

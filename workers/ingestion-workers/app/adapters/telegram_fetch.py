@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -16,6 +17,16 @@ from ..internal_jwt import make_admin_access_token
 from ..telegram_parse import parse_message
 
 logger = logging.getLogger(__name__)
+
+
+class TelegramSessionNotAuthorizedError(RuntimeError):
+    """Сессия Telethon не авторизована в контейнере worker'а.
+
+    Это ожидаемая ситуация до первой интерактивной авторизации: Telethon не
+    может запросить номер/код внутри фоновой задачи Celery (там нет TTY и
+    любой input() моментально падает EOFError'ом).
+    """
+
 
 
 def resolve_channel_username(cfg: dict[str, Any], source_name: str) -> str | None:
@@ -73,8 +84,33 @@ async def _fetch_telegram_async(
         )
 
     session_path = settings.telegram_session_file
+
+    # В контейнере worker'а нет TTY: если сессии ещё нет, Telethon во время
+    # .start()/.connect() попытается запросить номер через input() и упадёт с
+    # "EOF when reading a line". Проверяем заранее и выдаём понятную ошибку.
+    session_file = session_path if session_path.endswith(".session") else f"{session_path}.session"
+    if not os.path.exists(session_file):
+        raise TelegramSessionNotAuthorizedError(
+            "Файл Telegram-сессии не найден по пути "
+            f"'{session_file}'. Выполните авторизацию один раз локально "
+            "(python scripts/seed_telegram_vacancies.py) и положите "
+            "получившийся .tg_session.session в volume 'tg-ingest-session' "
+            "(путь /data/.tg_session внутри контейнера ingestion-worker)."
+        )
+
     client = TelegramClient(session_path, int(api_id), api_hash)
-    await client.start()
+    # Избегаем интерактивного .start() — оно дергает input() и внутри Celery
+    # воркера падает EOFError'ом. Подключаемся вручную и проверяем авторизацию.
+    await client.connect()
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        raise TelegramSessionNotAuthorizedError(
+            "Telegram-сессия в ingestion-worker не авторизована. "
+            "Запустите 'python scripts/seed_telegram_vacancies.py' локально, "
+            "подтвердите номер телефона и кодом из Telegram, затем "
+            "скопируйте файл .tg_session.session в volume 'tg-ingest-session' "
+            "(путь внутри контейнера: /data/.tg_session.session)."
+        )
 
     loaded = 0
     skipped = 0

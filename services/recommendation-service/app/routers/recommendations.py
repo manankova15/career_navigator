@@ -9,12 +9,20 @@ from ..crud import (
     get_latest_session,
     get_latest_skill_gaps,
     soft_unlike,
+    update_scores_in_place,
     upsert_like,
+    upsert_signal,
 )
 from ..database import get_db
-from ..orchestrator import run_recommendation
+from ..models import VacancyRecommendation
+from ..orchestrator import run_recommendation, run_recommendation_from_db_profile
+
+CURRENT_ALGORITHM = "content_ahp_v2"
+from ..personalization import build_affinity, score_with_personalization
 from ..schemas import (
     FeedbackIn,
+    InteractionIn,
+    InteractionOut,
     LikedVacancyOut,
     RecommendFeedPage,
     RecommendationOut,
@@ -27,6 +35,66 @@ from ..security import get_current_user_id, get_raw_token
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
 
+_SENTIMENT_MAP = {
+    "positive": (1.0, "interested"),
+    "negative": (-1.0, "not_interested"),
+    "neutral": (0.0, "viewed"),
+}
+
+
+def _rec_to_out(
+    rec: VacancyRecommendation,
+    final_score: float | None = None,
+    personal_boost: float = 0.0,
+    direct_signal: float | None = None,
+) -> RecommendationOut:
+    score = round(float(final_score), 4) if final_score is not None else float(rec.score)
+    return RecommendationOut(
+        id=rec.id,
+        vacancy_id=rec.vacancy_id,
+        score=score,
+        base_score=float(rec.base_score or rec.score or 0.0),
+        personal_boost=round(float(personal_boost), 4),
+        direct_signal=direct_signal,
+        ml_score=rec.ml_score,
+        skill_score=float(rec.skill_score or 0),
+        role_score=float(rec.role_score or 0),
+        location_score=float(rec.location_score or 0),
+        salary_score=float(rec.salary_score or 0),
+        seniority_score=float(rec.seniority_score or 0),
+        format_score=float(rec.format_score or 0),
+        matched_skills=list(rec.matched_skills or []),
+        missing_skills=list(rec.missing_skills or []),
+        reasons=list(rec.reasons or []),
+        feedback=rec.feedback,
+        created_at=rec.created_at,
+    )
+
+
+def _live_rescore(
+    db: Session, user_id: UUID, recs: list[VacancyRecommendation]
+) -> list[tuple[VacancyRecommendation, float, float, float | None]]:
+    affinity = build_affinity(db, user_id)
+    scored: list[tuple[VacancyRecommendation, float, float, float | None]] = []
+    persist: dict[UUID, float] = {}
+    for rec in recs:
+        features = rec.features or {}
+        final, boost, direct = score_with_personalization(
+            affinity,
+            base_score=float(rec.base_score or rec.score or 0),
+            vacancy_id=rec.vacancy_id,
+            vacancy_skills=list(features.get("vacancy_skills") or []),
+            vacancy_title=features.get("vacancy_title") or "",
+        )
+        scored.append((rec, final, boost, direct))
+        if abs(float(rec.score or 0) - final) > 1e-4:
+            persist[rec.id] = final
+    if persist:
+        update_scores_in_place(db, persist)
+    scored.sort(key=lambda t: t[1], reverse=True)
+    return scored
+
+
 @router.get("/me", response_model=RecommendFeedPage)
 async def get_my_recommendations(
     page: int = Query(1, ge=1),
@@ -34,21 +102,34 @@ async def get_my_recommendations(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Return the latest recommendation session for this user."""
+    """Return the latest recommendation session with live personalization.
+
+    On every request we recompute the personalization boost from the user's
+    current interactions so that a brand-new like, dislike or 'not interested'
+    click propagates into match percentages without waiting for a refresh.
+    """
     session = get_latest_session(db, user_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No recommendations yet. Call POST /recommendations/refresh first.",
         )
-    recs = session.recommendations
+    # If the latest stored session was produced by an earlier algorithm version,
+    # silently regenerate it from the DB-cached profile so the user immediately
+    # sees scores computed by the current AHP+personalization model without
+    # having to press "Refresh".
+    if session.algorithm != CURRENT_ALGORITHM:
+        refreshed = run_recommendation_from_db_profile(db, user_id)
+        if refreshed is not None:
+            session = refreshed
+    rescored = _live_rescore(db, user_id, list(session.recommendations))
     offset = (page - 1) * page_size
-    page_items = recs[offset: offset + page_size]
+    page_slice = rescored[offset: offset + page_size]
     return RecommendFeedPage(
-        items=page_items,
+        items=[_rec_to_out(r, f, b, d) for (r, f, b, d) in page_slice],
         session_id=session.id,
         session_created_at=session.created_at,
-        total=len(recs),
+        total=len(rescored),
         algorithm=session.algorithm,
     )
 
@@ -59,14 +140,10 @@ async def refresh_recommendations(
     user_token: str = Depends(get_raw_token),
     db: Session = Depends(get_db),
 ):
-    """
-    Trigger a fresh recommendation run:
-    fetch profile → fetch vacancies → score → persist → return top-20.
-    """
     session = run_recommendation(db, user_id, user_token)
-    recs = session.recommendations[:20]
+    rescored = _live_rescore(db, user_id, list(session.recommendations))[:20]
     return RecommendFeedPage(
-        items=recs,
+        items=[_rec_to_out(r, f, b, d) for (r, f, b, d) in rescored],
         session_id=session.id,
         session_created_at=session.created_at,
         total=len(session.recommendations),
@@ -81,11 +158,10 @@ async def leave_feedback(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Mark a recommendation as positive / negative / saved."""
     rec = apply_feedback(db, rec_id, user_id, body.feedback)
     if not rec:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recommendation not found")
-    return rec
+    return _rec_to_out(rec)
 
 
 @router.post("/likes/{vacancy_id}", response_model=LikedVacancyOut, status_code=status.HTTP_201_CREATED)
@@ -95,7 +171,6 @@ async def like_vacancy(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Persist a vacancy like for personalization."""
     row = upsert_like(
         db,
         user_id,
@@ -103,12 +178,11 @@ async def like_vacancy(
         body.vacancy_title,
         body.vacancy_skills,
     )
-    skills = list(row.vacancy_skills or [])
     return LikedVacancyOut(
         id=row.id,
         vacancy_id=row.vacancy_id,
         vacancy_title=row.vacancy_title,
-        vacancy_skills=skills,
+        vacancy_skills=list(row.vacancy_skills or []),
         liked_at=row.liked_at,
     )
 
@@ -141,12 +215,44 @@ async def list_my_likes(
     ]
 
 
+@router.post(
+    "/interactions/{vacancy_id}",
+    response_model=InteractionOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register an interest signal ('Да, интересно' / 'Нет, не подходит')",
+)
+async def register_interaction(
+    vacancy_id: UUID,
+    body: InteractionIn,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    sentiment, kind = _SENTIMENT_MAP[body.sentiment]
+    row = upsert_signal(
+        db,
+        user_id=user_id,
+        vacancy_id=vacancy_id,
+        sentiment=sentiment,
+        kind=kind,
+        source=body.source or "detail_page",
+        vacancy_title=body.vacancy_title,
+        vacancy_skills=body.vacancy_skills,
+    )
+    db.commit()
+    return InteractionOut(
+        id=row.id,
+        vacancy_id=row.vacancy_id,
+        sentiment=row.sentiment,
+        kind=row.kind,
+        updated_at=row.updated_at,
+    )
+
+
 @router.get("/skill-gap", response_model=SkillGapReportOut)
 async def get_skill_gap(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Return the skill-gap report from the latest recommendation session."""
     gaps, session = get_latest_skill_gaps(db, user_id)
     if not session:
         raise HTTPException(

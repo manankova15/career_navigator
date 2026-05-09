@@ -124,13 +124,14 @@ services:
       - "8006:8006"
     environment:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change_me_internal_token}
-      WEIGHT_SKILLS: "0.50"
-      WEIGHT_LOCATION: "0.20"
-      WEIGHT_SALARY: "0.15"
-      WEIGHT_SENIORITY: "0.15"
-      MODEL_DIR: /models
-    volumes:
-      - ml-models:/models
+      # AHP-derived weights (see services/ml-service/app/config.py);
+      # CR = 0.043 < 0.10, so the matrix is consistent and the vector is justified.
+      WEIGHT_SKILLS: "0.46"
+      WEIGHT_ROLE: "0.24"
+      WEIGHT_SENIORITY: "0.11"
+      WEIGHT_SALARY: "0.11"
+      WEIGHT_LOCATION: "0.05"
+      WEIGHT_FORMAT: "0.03"
     restart: unless-stopped
 
   recommendation-service:
@@ -340,6 +341,5 @@ volumes:
   postgres-data:
   clickhouse-data:
   minio-data:
-  ml-models:
   profile-resume-files:
   tg-ingest-session:

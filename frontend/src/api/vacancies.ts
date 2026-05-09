@@ -127,18 +127,32 @@ function getUserIdFromToken(): string | null {
 export async function recordVacancyInterest(
   vacancyId: string,
   interested: boolean,
+  context?: { vacancyTitle?: string | null; vacancySkills?: string[] },
 ): Promise<void> {
   const userId = getUserIdFromToken();
-  if (!userId) return;
-  await api
-    .post("/analytics/events", {
-      user_id: userId,
-      event_type: "vacancy_interest",
-      resource_type: "vacancy",
-      resource_id: vacancyId,
-      properties: { interested },
+
+  const analyticsCall = userId
+    ? api
+        .post("/analytics/events", {
+          user_id: userId,
+          event_type: "vacancy_interest",
+          resource_type: "vacancy",
+          resource_id: vacancyId,
+          properties: { interested },
+        })
+        .catch(() => {})
+    : Promise.resolve();
+
+  const recCall = api
+    .post(`/recommendations/interactions/${vacancyId}`, {
+      sentiment: interested ? "positive" : "negative",
+      source: "detail_page",
+      vacancy_title: context?.vacancyTitle ?? null,
+      vacancy_skills: context?.vacancySkills ?? [],
     })
-    .catch(() => {}); // non-critical, swallow errors
+    .catch(() => {});
+
+  await Promise.all([analyticsCall, recCall]);
 }
 
 export function vacancySalaryCurrency(v: Vacancy): string {

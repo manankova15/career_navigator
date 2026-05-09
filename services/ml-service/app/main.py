@@ -1,32 +1,20 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from .config import settings
-from .ranking.model_loader import load_ranker
 from .routers.ml import router as ml_router
-from .training.trainer import ensure_trained_model
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    ensure_trained_model(settings.model_dir)
-    app.state.rank_booster = load_ranker(settings.model_dir)
-    yield
-    app.state.rank_booster = None
-
 
 app = FastAPI(
     title=settings.service_name,
     version=settings.version,
     description=(
         "Stateless ML computation service. "
-        "Content-based scoring, hybrid LightGBM ranking, skill-gap analysis."
+        "Content-based AHP-weighted scoring and skill-gap analysis. "
+        "No pretrained model, no external training data."
     ),
     docs_url="/docs",
     openapi_url="/openapi.json",
-    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -40,18 +28,25 @@ app.add_middleware(
 app.include_router(ml_router)
 
 
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs")
+
+
 @app.get("/health", tags=["meta"])
 async def health():
     return {
         "status": "ok",
         "service": settings.service_name,
         "version": settings.version,
-        "algorithm": "hybrid_lgb_v1",
+        "algorithm": "content_ahp_v2",
         "weights": {
             "skills": settings.weight_skills,
-            "location": settings.weight_location,
-            "salary": settings.weight_salary,
+            "role": settings.weight_role,
             "seniority": settings.weight_seniority,
+            "salary": settings.weight_salary,
+            "location": settings.weight_location,
+            "format": settings.weight_format,
         },
     }
 

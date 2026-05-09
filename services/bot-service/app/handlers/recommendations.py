@@ -22,7 +22,7 @@ def _format_recommendations(data: dict) -> str:
         )
     lines = [
         f"⭐ <b>Ваши рекомендации</b> "
-        f"(алгоритм: {data.get('algorithm', 'content_v1')})\n"
+        f"(алгоритм: {data.get('algorithm', 'content_ahp_v2')})\n"
     ]
     for i, r in enumerate(recs[:5], 1):
         score = r.get("score", 0)
@@ -64,9 +64,14 @@ async def show_recommendations(message: Message, state: FSMContext) -> None:
         await message.answer("Пожалуйста, войдите через /start.")
         return
     data = await rec_client.get_my_recommendations(session.access_token)
-    has_data = bool(data and data.get("items"))
+    items = (data or {}).get("items") or []
+    has_data = bool(items)
     text = _format_recommendations(data or {})
-    await message.answer(text, reply_markup=recommendation_keyboard(has_data), parse_mode="HTML")
+    await message.answer(
+        text,
+        reply_markup=recommendation_keyboard(has_data, items),
+        parse_mode="HTML",
+    )
 
 
 @router.message(F.text.in_({"📊 Анализ навыков", "📊 Skill Gap"}))
@@ -90,10 +95,13 @@ async def cb_rec_refresh(call: CallbackQuery) -> None:
         return
     await call.answer("⏳ Формирую рекомендации…")
     data = await rec_client.refresh_recommendations(session.access_token)
-    has_data = bool(data and data.get("items"))
+    items = (data or {}).get("items") or []
+    has_data = bool(items)
     text = _format_recommendations(data or {})
     await call.message.edit_text(
-        text, reply_markup=recommendation_keyboard(has_data), parse_mode="HTML"
+        text,
+        reply_markup=recommendation_keyboard(has_data, items),
+        parse_mode="HTML",
     )
 
 
@@ -107,3 +115,50 @@ async def cb_rec_skillgap(call: CallbackQuery) -> None:
     text = _format_skill_gap(data or {})
     await call.message.answer(text, parse_mode="HTML")
     await call.answer()
+
+
+async def _send_refreshed_feed(call: CallbackQuery, token: str) -> None:
+    data = await rec_client.get_my_recommendations(token)
+    items = (data or {}).get("items") or []
+    has_data = bool(items)
+    text = _format_recommendations(data or {})
+    try:
+        await call.message.edit_text(
+            text,
+            reply_markup=recommendation_keyboard(has_data, items),
+            parse_mode="HTML",
+        )
+    except Exception:
+        await call.message.answer(
+            text,
+            reply_markup=recommendation_keyboard(has_data, items),
+            parse_mode="HTML",
+        )
+
+
+@router.callback_query(F.data.startswith("rec:like:"))
+async def cb_rec_like(call: CallbackQuery) -> None:
+    session = await get_session(call.from_user.id)
+    if not session:
+        await call.answer("Пожалуйста, войдите.", show_alert=True)
+        return
+    vacancy_id = call.data.split(":", 2)[2]
+    await rec_client.register_interaction(
+        session.access_token, vacancy_id, sentiment="positive"
+    )
+    await call.answer("👍 Учтено. Пересчитываю подборку…")
+    await _send_refreshed_feed(call, session.access_token)
+
+
+@router.callback_query(F.data.startswith("rec:dislike:"))
+async def cb_rec_dislike(call: CallbackQuery) -> None:
+    session = await get_session(call.from_user.id)
+    if not session:
+        await call.answer("Пожалуйста, войдите.", show_alert=True)
+        return
+    vacancy_id = call.data.split(":", 2)[2]
+    await rec_client.register_interaction(
+        session.access_token, vacancy_id, sentiment="negative"
+    )
+    await call.answer("👎 Учтено. Эта и похожие вакансии опустятся ниже.")
+    await _send_refreshed_feed(call, session.access_token)

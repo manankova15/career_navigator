@@ -9,11 +9,16 @@ class RecommendationOut(BaseModel):
     id: UUID
     vacancy_id: UUID
     score: float
+    base_score: float = 0.0
+    personal_boost: float = 0.0
+    direct_signal: float | None = None
     ml_score: float | None = None
     skill_score: float
+    role_score: float = 0.0
     location_score: float
     salary_score: float
     seniority_score: float
+    format_score: float = 0.0
     matched_skills: list[str]
     missing_skills: list[str]
     reasons: list[str]
@@ -57,7 +62,6 @@ class FeedbackIn(BaseModel):
 
 
 class RecommendFeedPage(BaseModel):
-    """Paginated feed of latest recommendations for the user."""
     items: list[RecommendationOut]
     session_id: UUID
     session_created_at: datetime
@@ -76,5 +80,23 @@ class LikedVacancyOut(BaseModel):
     vacancy_title: str | None
     vacancy_skills: list[str]
     liked_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class InteractionIn(BaseModel):
+    """Explicit interest signal from the vacancy detail page or bot buttons."""
+    sentiment: Literal["positive", "negative", "neutral"]
+    source: str | None = None
+    vacancy_title: str | None = None
+    vacancy_skills: list[str] = Field(default_factory=list)
+
+
+class InteractionOut(BaseModel):
+    id: UUID
+    vacancy_id: UUID
+    sentiment: float
+    kind: str
+    updated_at: datetime
 
     model_config = {"from_attributes": True}

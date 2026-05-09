@@ -43,3 +43,22 @@ class SourceSyncIn(BaseModel):
         le=5000,
         description="Сколько новых вакансий максимум собрать (HH: новые raw; TG: успешных POST canonical)",
     )
+
+
+class SourceSyncOut(BaseModel):
+    """Ответ на постановку задачи дозагрузки в очередь."""
+
+    source_id: str
+    status: Literal["queued"] = "queued"
+    task_id: str
+    max_vacancies: int | None = None
+
+
+class SyncJobStatusOut(BaseModel):
+    """Срез состояния фоновой задачи ingestion по task_id."""
+
+    task_id: str
+    state: str
+    ready: bool = False
+    result: dict[str, Any] | None = None
+    error: str | None = None

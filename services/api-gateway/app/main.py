@@ -16,6 +16,7 @@ Routes:
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from .config import settings
 from .proxy import forward
@@ -71,6 +72,11 @@ async def rate_limit_middleware(request: Request, call_next):
             media_type="application/json",
         )
     return await call_next(request)
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs")
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

@@ -30,6 +30,18 @@ class SyncTriggerResult(BaseModel):
     source_id: str
     status: str
     message: str
+    task_id: str | None = None
+    max_vacancies: int | None = None
+
+
+class SyncJobStatusOut(BaseModel):
+    """Состояние задачи дозагрузки вакансий по её task_id (Celery)."""
+
+    task_id: str
+    state: str
+    ready: bool = False
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class SourceSyncTriggerIn(BaseModel):

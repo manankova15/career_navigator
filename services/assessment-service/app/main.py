@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from .config import settings
 from .routers.assessments import router as assessments_router
@@ -27,6 +28,11 @@ app.add_middleware(
 
 app.include_router(assessments_router)
 app.include_router(attempts_router)
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health", tags=["meta"])

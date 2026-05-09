@@ -35,3 +35,26 @@ async def get_skill_gap(token: str) -> dict | None:
         )
     except Exception:
         return None
+
+
+async def register_interaction(
+    token: str,
+    vacancy_id: str,
+    sentiment: str,
+    vacancy_title: str | None = None,
+    vacancy_skills: list[str] | None = None,
+) -> dict | None:
+    """POST /recommendations/interactions/{vacancy_id} — 'interested' / 'not interested'."""
+    try:
+        return await post_json(
+            f"{settings.recommendation_service_url}/recommendations/interactions/{vacancy_id}",
+            token,
+            body={
+                "sentiment": sentiment,
+                "source": "bot",
+                "vacancy_title": vacancy_title,
+                "vacancy_skills": vacancy_skills or [],
+            },
+        )
+    except Exception:
+        return None

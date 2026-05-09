@@ -13,8 +13,15 @@ from ..crud import (
 )
 from ..database import get_db
 from ..deps import require_admin
-from ..ingestion_tasks import enqueue_fetch_source
-from ..schemas import SourceIn, SourceOut, SourceSyncIn, SourceToggle
+from ..ingestion_tasks import enqueue_fetch_source, get_job_status
+from ..schemas import (
+    SourceIn,
+    SourceOut,
+    SourceSyncIn,
+    SourceSyncOut,
+    SourceToggle,
+    SyncJobStatusOut,
+)
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -35,14 +42,22 @@ async def get_source_by_id(source_id: UUID, db: Session = Depends(get_db)):
     return source
 
 
-@router.post("/{source_id}/sync", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{source_id}/sync",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=SourceSyncOut,
+)
 async def trigger_ingestion_sync(
     source_id: UUID,
     body: SourceSyncIn = Body(default_factory=SourceSyncIn),
     db: Session = Depends(get_db),
     _admin: dict = Depends(require_admin),
 ):
-    """Поставить в очередь Celery задачу дозагрузки вакансий для источника."""
+    """Поставить в очередь Celery задачу дозагрузки вакансий для источника.
+
+    В ответ возвращается task_id — по нему можно опрашивать статус через
+    GET /sources/sync/jobs/{task_id}.
+    """
     source = get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
@@ -53,17 +68,34 @@ async def trigger_ingestion_sync(
         )
     max_v = body.max_vacancies
     try:
-        enqueue_fetch_source(str(source_id), max_vacancies=max_v)
+        task_id = enqueue_fetch_source(str(source_id), max_vacancies=max_v)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Could not enqueue sync: {exc}",
         ) from exc
-    return {
-        "source_id": str(source_id),
-        "status": "queued",
-        "max_vacancies": max_v,
-    }
+    return SourceSyncOut(
+        source_id=str(source_id),
+        status="queued",
+        task_id=task_id,
+        max_vacancies=max_v,
+    )
+
+
+@router.get("/sync/jobs/{task_id}", response_model=SyncJobStatusOut)
+async def get_sync_job_status(
+    task_id: str,
+    _admin: dict = Depends(require_admin),
+):
+    """Узнать состояние ранее поставленной задачи дозагрузки по её task_id."""
+    try:
+        info = get_job_status(task_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Could not read job status: {exc}",
+        ) from exc
+    return SyncJobStatusOut(**info)
 
 
 @router.post("", response_model=SourceOut, status_code=status.HTTP_201_CREATED)

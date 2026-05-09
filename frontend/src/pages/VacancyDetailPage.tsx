@@ -76,6 +76,10 @@ export default function VacancyDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo ?? "";
+  const backHref = returnTo.startsWith("/") ? returnTo : `/vacancies${returnTo}`;
+  const backLabel = returnTo.startsWith("/recommendations")
+    ? "Все рекомендации"
+    : "Все вакансии";
   const [vacancy, setVacancy] = useState<Vacancy | null>(null);
   const [error, setError] = useState("");
   const [relevantAssessments, setRelevantAssessments] = useState<(AssessmentSummary & { relevance: number })[]>([]);
@@ -106,7 +110,12 @@ export default function VacancyDetailPage() {
   async function handleInterest(interested: boolean) {
     setInterestAnswer(interested);
     setInterestSubmitted(true);
-    if (id) await recordVacancyInterest(id, interested);
+    if (id) {
+      await recordVacancyInterest(id, interested, {
+        vacancyTitle: vacancy?.title ?? null,
+        vacancySkills: vacancy?.skills ?? [],
+      });
+    }
   }
 
   if (error) return <div><ErrorBanner message={error} /></div>;
@@ -166,8 +175,8 @@ export default function VacancyDetailPage() {
 
   return (
     <div style={{ maxWidth: 780 }}>
-      <Link to={`/vacancies${returnTo}`} className="text-link" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#3B5BDB", fontSize: 14, textDecoration: "none", fontWeight: 500, marginBottom: 24 }}>
-        ← Все вакансии
+      <Link to={backHref} className="text-link" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#3B5BDB", fontSize: 14, textDecoration: "none", fontWeight: 500, marginBottom: 24 }}>
+        ← {backLabel}
       </Link>
 
       <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>

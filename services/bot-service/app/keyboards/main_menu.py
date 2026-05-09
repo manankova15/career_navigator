@@ -163,8 +163,32 @@ def quiz_result_keyboard() -> InlineKeyboardMarkup:
 
 # ── Common ────────────────────────────────────────────────────────────────────
 
-def recommendation_keyboard(has_data: bool) -> InlineKeyboardMarkup:
+def recommendation_keyboard(
+    has_data: bool, items: list[dict] | None = None
+) -> InlineKeyboardMarkup:
+    """Controls shown under the recommendation list.
+
+    For every vacancy in the displayed list we also render a 👍 / 👎 pair
+    that posts an 'interested' / 'not interested' signal back to the
+    recommendation service. The personalization layer picks it up on the
+    next /rec/me refresh.
+    """
     builder = InlineKeyboardBuilder()
+    items = items or []
+    for i, item in enumerate(items[:5], 1):
+        vid = str(item.get("vacancy_id") or "")
+        if not vid:
+            continue
+        builder.row(
+            InlineKeyboardButton(
+                text=f"#{i} 👍",
+                callback_data=f"rec:like:{vid}",
+            ),
+            InlineKeyboardButton(
+                text=f"#{i} 👎",
+                callback_data=f"rec:dislike:{vid}",
+            ),
+        )
     if has_data:
         builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="rec:refresh"))
         builder.row(InlineKeyboardButton(text="📊 Анализ навыков", callback_data="rec:skillgap"))

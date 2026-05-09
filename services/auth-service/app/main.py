@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from .config import settings
 from .routers.admin_users import router as admin_users_router
@@ -11,6 +12,11 @@ app = FastAPI(
     docs_url="/docs",
     openapi_url="/openapi.json",
 )
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs")
 
 app.add_middleware(
     CORSMiddleware,

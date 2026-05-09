@@ -3,9 +3,7 @@ HTTP clients for downstream services.
 All calls are synchronous (httpx sync) to keep the service simple.
 """
 
-import json
 from typing import Any
-from uuid import UUID
 
 import httpx
 
@@ -32,7 +30,6 @@ def fetch_user_profile(user_token: str) -> dict[str, Any]:
     resp.raise_for_status()
     profile = resp.json()
 
-    # Also fetch skills
     skills_resp = httpx.get(
         f"{settings.profile_service_url}/profiles/me/skills",
         headers=_headers_bearer(user_token),
@@ -40,7 +37,6 @@ def fetch_user_profile(user_token: str) -> dict[str, Any]:
     )
     skills_resp.raise_for_status()
 
-    # Fetch preferences
     prefs_resp = httpx.get(
         f"{settings.profile_service_url}/profiles/me/preferences",
         headers=_headers_bearer(user_token),
@@ -102,23 +98,6 @@ def call_skill_gap(payload: dict[str, Any]) -> dict[str, Any]:
         json=payload,
         headers=_headers_internal(),
         timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _json_default(obj: Any) -> Any:
-    if isinstance(obj, UUID):
-        return str(obj)
-    raise TypeError
-
-
-def call_rank(payload: dict[str, Any]) -> dict[str, Any]:
-    resp = httpx.post(
-        f"{settings.ml_service_url}/ml/rank",
-        content=json.dumps(payload, default=_json_default),
-        headers={**_headers_internal(), "Content-Type": "application/json"},
-        timeout=60,
     )
     resp.raise_for_status()
     return resp.json()
