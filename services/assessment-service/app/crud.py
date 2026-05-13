@@ -299,7 +299,7 @@ def submit_attempt(
         item_data_list.append(item_dict)
         results.append(result)
 
-    # Items not answered by the user still contribute to max_score
+    # Пропущенные вопросы увеличивают max_score
     answered_item_ids = {a.item_id for a in answers_in}
     for item in assessment.items:
         if item.id not in answered_item_ids:
@@ -319,7 +319,7 @@ def submit_attempt(
     attempt.percentage = percentage
     attempt.weak_skills = weak_skills
 
-    # Build and persist feedback
+    # Feedback в БД
     rubric_notes = [r.auto_feedback for r in results if r.auto_feedback]
     recommended = build_recommended_materials(weak_skills)
     summary = build_summary(percentage)

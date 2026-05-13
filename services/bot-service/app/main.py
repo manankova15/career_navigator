@@ -100,7 +100,7 @@ async def telegram_webhook(request: Request) -> Response:
 
 async def _start_polling() -> None:
     logger.info("[bot-service] Starting in polling mode")
-    # Удаляем webhook, иначе Telegram шлёт обновления туда и getUpdates возвращает пустоту
+    # Сброс webhook — иначе polling не получает апдейты
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
@@ -112,11 +112,11 @@ async def _setup_webhook() -> None:
 
 
 async def _on_startup() -> None:
-    # Явно webhook только если mode ровно "webhook" и задан URL
+    # Webhook только при BOT_MODE=webhook и непустом webhook_base_url
     if settings.bot_mode.strip().lower() == "webhook" and settings.webhook_base_url:
         await _setup_webhook()
     else:
-        # Иначе всегда polling (на случай если BOT_MODE пришёл как "${BOT_MODE:-polling}" и не раскрылся)
+        # Иначе polling (в т.ч. если в .env остался плейсхолдер ${BOT_MODE:-polling})
         asyncio.create_task(_start_polling())
 
 

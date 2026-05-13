@@ -24,13 +24,10 @@ class UserProfileInput(BaseModel):
     salary_to: int | None = None
     seniority: str | None = None
     target_industry: str | None = None
-    # Канонические значения категории/специализации (передаются с
-    # profile-service'а напрямую — пользователь выбирает их из выпадающих
-    # списков, классификатор по свободному тексту больше не используется).
+    # Категории/спеки с profile-service (выпадающие списки), не из текстового classifier
     preferred_categories: list[str] = Field(default_factory=list)
     preferred_specializations: list[str] = Field(default_factory=list)
-    # Бэкенд-обогащение из лайков (для отображения в reasons; не используется в
-    # самом скоре — все поведенческие сигналы приходят через ``BehaviorInput``).
+    # Из лайков для reasons; скоринг — через BehaviorInput
     liked_skills_top: list[str] = Field(default_factory=list)
     liked_titles: list[str] = Field(default_factory=list)
     total_likes: int = 0
@@ -48,20 +45,14 @@ class VacancyInput(BaseModel):
     employment_type: str | None = None
     description: str | None = None
     published_at: datetime | None = None
-    # Канонические значения из ``canonical_vacancies``. Используются как
-    # отдельные жёсткие признаки (см. §3 модели v3).
+    # Канонические profession_area / specialization (модель v3 §3)
     profession_area: str | None = None
     specialization: str | None = None
     work_format: list[str] = Field(default_factory=list)
 
 
 class BehaviorInput(BaseModel):
-    """История взаимодействий пользователя, агрегированная recommendation-service.
-
-    Передаётся в скоринг ровно так, как описано в §4 модели v3:
-    значения уже сглажены по Байесу и затухли по времени. ML-service применяет
-    их без дополнительной обработки.
-    """
+    """Агрегат сигналов из recommendation-service (§4 v3), без доп. сглаживания в ml-service"""
 
     total_signals: int = 0
     category_pref: dict[str, float] = Field(default_factory=dict)

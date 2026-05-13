@@ -306,6 +306,11 @@ services:
       TELEGRAM_SESSION_FILE: /data/.tg_session
       TELEGRAM_BATCH_SIZE: "100"
       TELEGRAM_REQUEST_DELAY_SECONDS: "1.5"
+      # HH.ru OAuth: с 2025 публичный API требует Bearer-токен приложения.
+      HH_CLIENT_ID: ${HH_CLIENT_ID:-}
+      HH_CLIENT_SECRET: ${HH_CLIENT_SECRET:-}
+      HH_AUTH_TOKEN: ${HH_AUTH_TOKEN:-}
+      HH_USER_AGENT: ${HH_USER_AGENT:-career-navigator-thesis/1.0 (manankova-15@mail.ru)}
     volumes:
       - tg-ingest-session:/data
     depends_on:

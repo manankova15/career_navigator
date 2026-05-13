@@ -42,7 +42,7 @@ def _format_attempt_history(attempts: list[dict]) -> str:
 @router.message(F.text.in_({"📝 Задания", "📝 Assessments"}))
 @router.message(Command("assessments"))
 async def show_assessments(message: Message, state: FSMContext) -> None:
-    await state.clear()  # выходим из режима теста, показываем список заданий
+    await state.clear()  # сброс режима прохождения теста
     session = await get_session(message.from_user.id)
     if not session:
         await message.answer("Пожалуйста, войдите через /start.")
@@ -145,7 +145,7 @@ async def _send_question(message: Message, quiz: QuizState) -> None:
         for i, opt in enumerate(options):
             letter = letters[i] if i < len(letters) else str(i + 1)
             raw = (opt.get("text") or "").strip()
-            # Убрать ведущие "A)", "A." и т.д., чтобы не было "A. A) текст"
+            # Убрать дублирующий префикс варианта (A), A. …)
             cleaned = re.sub(r"^[A-Za-zА-Яа-я]\s*[.)]\s*", "", raw).strip() or raw
             opt_lines.append(f"{letter}. {cleaned}")
         text = header + prompt + "\n\n" + "\n".join(opt_lines)
@@ -155,7 +155,7 @@ async def _send_question(message: Message, quiz: QuizState) -> None:
             parse_mode="HTML",
         )
     else:
-        # short_text / case — ask user to type answer
+        # Режим short_text / case — ответ текстом
         text = header + prompt + "\n\n<i>Введите ваш ответ текстом или нажмите «Пропустить».</i>"
         await message.answer(
             text,
@@ -176,7 +176,6 @@ async def cb_quiz_answer(call: CallbackQuery, state: FSMContext) -> None:
         await state.clear()
         return
 
-    # Record answer
     quiz.answers.append({
         "item_id": item_id,
         "selected_option_ids": [option_id],
@@ -286,7 +285,6 @@ async def _submit_and_finish(
         f"\n<i>{result_label}</i>",
     ]
 
-    # Show per-answer breakdown if available
     answers_detail = result.get("answers") or []
     if answers_detail:
         lines.append("\n<b>Разбор ответов:</b>")

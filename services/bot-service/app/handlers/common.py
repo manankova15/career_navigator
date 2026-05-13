@@ -1,6 +1,4 @@
-"""
-/start, /help, /logout handlers. Авторизация по Telegram при /start (без email/пароля).
-"""
+"""Обработчики /start, /help, /logout; вход по Telegram без email/пароля"""
 from __future__ import annotations
 
 from aiogram import F, Router
@@ -45,7 +43,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         )
         return
 
-    # Авторизация по Telegram: один запрос к auth-service — получаем токен (или создаётся пользователь)
+    # Вход через auth-service (JWT; пользователь создаётся при первом визите)
     result = await auth_client.login_by_telegram(
         tg_id,
         tg_user.username,
@@ -83,7 +81,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 
 @router.message(Command("menu"))
 async def cmd_menu(message: Message, state: FSMContext) -> None:
-    """Показать основное меню (кнопки)."""
+    """Главное меню"""
     await state.clear()
     session = await get_session(message.from_user.id)
     if not session:

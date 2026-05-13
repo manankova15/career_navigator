@@ -62,7 +62,7 @@ def create_session(
 
 
 def update_scores_in_place(db: Session, scores_by_rec_id: dict[UUID, float]) -> None:
-    """Persist personalized scores after an in-memory rescoring pass."""
+    """Запись пересчитанных score после _live_rescore"""
     if not scores_by_rec_id:
         return
     rows = (
@@ -135,7 +135,7 @@ def apply_feedback(
     rec.feedback_at = datetime.utcnow()
     db.flush()
 
-    # Mirror to the unified signals table for cross-session reuse.
+    # Дублирование в user_vacancy_signals для следующих сессий
     features = rec.features or {}
     sentiment = {"positive": 1.0, "negative": -1.0}.get(feedback, 0.0)
     upsert_signal(
@@ -202,8 +202,7 @@ def upsert_like(
         )
         db.add(row)
 
-    # Mirror to signals as a +1 so that a like propagates into personalization
-    # without forcing the user to also click 'interested'.
+    # Лайк → сигнал +1 без отдельного «interested»
     upsert_signal(
         db,
         user_id=user_id,
@@ -234,7 +233,7 @@ def soft_unlike(db: Session, user_id: UUID, vacancy_id: UUID) -> bool:
     if not row:
         return False
     row.unliked_at = datetime.utcnow()
-    # Reset the signal — the user changed their mind.
+    # Снятие лайка — удалить сигнал kind=like
     sig = (
         db.query(UserVacancySignal)
         .filter(

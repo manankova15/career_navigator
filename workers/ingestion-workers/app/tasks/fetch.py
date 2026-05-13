@@ -41,11 +41,7 @@ def _create_run_row(
     max_vacancies: int,
     task_id: str | None,
 ) -> UUID:
-    """Создать запись в ingestion_runs со статусом 'running' и вернуть её id.
-
-    Любые ошибки записи логируются и не приводят к падению задачи — наличие
-    истории запусков считается best-effort.
-    """
+    """Строка ingestion_runs со статусом running; ошибки записи только в лог"""
     run_id = uuid4()
     try:
         with get_db_ctx() as db:
@@ -174,9 +170,7 @@ def fetch_source(self, source_id: str, max_vacancies: int | None = None):
                     str(source_id), cfg, source_name, cap
                 )
             except TelegramSessionNotAuthorizedError as exc:
-                # Сессия Telethon не авторизована — fallback на публичный
-                # web-preview (t.me/s/<channel>). Авторизация не требуется,
-                # работает для любого публичного канала.
+                # Нет Telethon-сессии → публичный web-preview (t.me/s/…)
                 logger.warning(
                     "Telegram Telethon session not ready for source=%s: %s "
                     "— пробуем web-preview fallback",
@@ -233,16 +227,13 @@ def fetch_source(self, source_id: str, max_vacancies: int | None = None):
         reason=reason,
     )
 
-    # Если успех и есть новые сырые вакансии — сразу запускаем нормализацию
-    # и затем дедупликацию, чтобы пользователь в админке увидел итог без
-    # ручных шагов. Хвост пайплайна работает best-effort: ошибки логируем,
-    # но статус самого fetch это не меняет.
+    # Успех и новые raw → best-effort цепочка normalize→dedup (ошибки только в лог)
     if status == "success" and int(new_vacancies or 0) > 0:
         try:
             from .normalize import normalize_pending_raw
             from .dedup import run_deduplication
 
-            # chain: сначала нормализация, потом дедупликация на canonical-таблице.
+            # normalize → dedup
             from celery import chain as _celery_chain
 
             _celery_chain(
@@ -270,13 +261,13 @@ def fetch_source(self, source_id: str, max_vacancies: int | None = None):
 
 
 def _hh_queries_from_cfg(cfg: dict) -> list[str]:
-    """Поддерживаем оба формата: одиночный default_query и список default_queries."""
+    """default_query или список default_queries"""
     queries_field = cfg.get("default_queries")
     if isinstance(queries_field, list) and queries_field:
         return [str(q).strip() for q in queries_field if str(q).strip()]
     single = cfg.get("default_query")
     if isinstance(single, str) and single.strip():
-        # Разбиваем по запятой/| для удобства — но без логики OR.
+        # Запятая и | — разделители отдельных запросов (не OR)
         parts = [p.strip() for p in single.replace("|", ",").split(",") if p.strip()]
         return parts or [single.strip()]
     return ["python developer"]
@@ -285,13 +276,11 @@ def _hh_queries_from_cfg(cfg: dict) -> list[str]:
 def _fetch_hh(source_id: str, cfg: dict, max_vacancies: int) -> int:
     queries = _hh_queries_from_cfg(cfg)
     area_id = cfg.get("area_id", 1)
-    # hh.ru разрешает per_page до 100; для уменьшения вероятности 400 на широких
-    # запросах берём более скромное значение по умолчанию.
+    # per_page ≤ 100; умеренный дефолт снижает риск 400 на широких выборках
     per_page = min(int(cfg.get("per_page", 50)), 100)
 
     max_pages_setting = settings.fetch_pages_per_run
-    # На каждый отдельный запрос даём свою «долю» страниц — иначе с лимитом
-    # max_vacancies=200 и одним коротким запросом ничего не достанется второму.
+    # Лимит страниц на один query при общем max_vacancies
     per_query_cap = max(1, math.ceil(max_vacancies / max(1, len(queries))))
     pages_for_cap = max(1, math.ceil(per_query_cap / per_page))
     max_pages = min(max_pages_setting, pages_for_cap)

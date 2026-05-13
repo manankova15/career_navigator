@@ -17,13 +17,11 @@ class Profile(Base):
     first_name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=True)
     patronymic = Column(String(100), nullable=True)
-    # Канонический код города (см. CITIES во фронте) либо null.
+    # Код города (CITIES) или null
     location = Column(String(64), nullable=True)
-    # Канонический код специализации (см. SPECIALIZATION_OPTIONS).
-    # Используется напрямую в рекомендательной модели (specialization_score).
+    # Код специализации → specialization_score
     specialization = Column(String(64), nullable=True)
-    # Канонический код профессиональной области (см. PROFESSION_AREAS).
-    # Используется напрямую в рекомендательной модели (category_score).
+    # Код области → category_score
     target_industry = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

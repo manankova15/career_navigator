@@ -103,9 +103,14 @@ def main():
         )
         if rc.returncode != 0:
             print(
-                "[reseed] HH.ru вернул ошибку. Если это 403, скорее всего твой IP "
-                "временно заблокирован их анти-ботом. Запусти с --skip-hh, "
-                "чтобы продолжить только с Telegram."
+                "[reseed] seed_hh_vacancies.py завершился с ошибкой. "
+                "Возможные причины:\n"
+                "  • 403 от HH (нужен OAuth-токен — заполни HH_CLIENT_ID/"
+                "HH_CLIENT_SECRET в .env);\n"
+                "  • vacancy-service на localhost:8004 не запущен или таймаутит "
+                "(подними docker compose up -d, проверь /healthz);\n"
+                "  • временная сетевая ошибка — просто повтори запуск.\n"
+                "Можно запустить с --skip-hh, чтобы продолжить только с Telegram."
             )
             if not skip_telegram:
                 # Не выходим — продолжаем с Telegram, чтобы не терять прогресс.

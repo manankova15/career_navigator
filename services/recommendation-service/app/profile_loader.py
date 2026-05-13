@@ -13,8 +13,7 @@ from sqlalchemy.orm import Session
 
 
 def load_profile_bundle(db: Session, user_id: UUID) -> dict[str, Any] | None:
-    """После v2 профиль хранит канонические коды напрямую, поэтому никакого
-    текстового classifier'а в этом пути уже нет."""
+    """Профиль v2: канонические коды без текстового classifier в этом пути"""
     uid = str(user_id)
     meta = db.execute(
         text(

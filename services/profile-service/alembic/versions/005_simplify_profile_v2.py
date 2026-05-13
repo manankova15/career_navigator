@@ -64,7 +64,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Восстанавливаем структуру до v2 (значения свободного текста не возвращаем).
+    # Откат схемы v2: free-text значения не восстанавливаются
     op.add_column(
         "profile_preferences",
         sa.Column(

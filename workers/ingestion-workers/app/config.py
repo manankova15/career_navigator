@@ -13,7 +13,15 @@ class WorkerSettings(BaseSettings):
     internal_jwt_algorithm: str = "HS256"
 
     hh_api_base: str = "https://api.hh.ru"
-    hh_user_agent: str = "CareerNavigator/1.0 (career.navigator@example.com)"
+    # HH требует валидный User-Agent с реальным контактом, иначе отдаёт 403.
+    hh_user_agent: str = "career-navigator-thesis/1.0 (manankova-15@mail.ru)"
+    # OAuth для публичного API HH.ru. С весны 2025 анонимные запросы к /vacancies
+    # отбиваются 403 {"errors":[{"type":"forbidden"}]}, поэтому шлём Bearer-token.
+    # Если задан client_id/secret, при 403 воркер сам перевыпустит токен
+    # (grant_type=client_credentials).
+    hh_client_id: str = ""
+    hh_client_secret: str = ""
+    hh_auth_token: str = ""
 
     fetch_pages_per_run: int = 5       # max pages to fetch per source run
     dedup_similarity_threshold: float = 0.85

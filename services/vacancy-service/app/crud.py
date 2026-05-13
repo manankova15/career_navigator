@@ -59,28 +59,13 @@ def mark_raw_processed(db: Session, raw_id: UUID) -> None:
 # ── Canonical vacancies ──────────────────────────────────────────────────────
 
 def _enrich_salary_fields(payload: dict) -> dict:
-    """
-    Гарантируем, что у канонической вакансии заполнены поля:
-      - salary_from / salary_to / salary_currency / salary_period (приведено к месяцу)
-      - salary_from_rub / salary_to_rub (рублёвый эквивалент для сортировки)
-
-    Логика:
-      1) Если поставщик не указал salary_from и salary_to, пытаемся выудить
-         их из заголовка + описания через salary_parser.parse_salary.
-      2) Если salary_period отличен от 'month' — приводим суммы к месячному
-         эквиваленту (год → /12, день → *22, час → *168).
-      3) Заполняем salary_from_rub / salary_to_rub по фиксированным курсам
-         из salary_parser.EXCHANGE_RATES_RUB.
-
-    Поля, переданные клиентом, имеют приоритет: парсер вызывается только
-    если salary_from / salary_to отсутствуют.
-    """
+    """Поля зарплаты: месячный эквивалент, RUB для сортировки; parse_salary если сумм нет; приоритет у явных полей от клиента"""
     salary_from = payload.get("salary_from")
     salary_to = payload.get("salary_to")
     currency = payload.get("salary_currency") or "RUB"
     period = payload.get("salary_period") or "month"
 
-    # 1) Парсим из текста, если суммы не переданы.
+    # 1) Парсинг из title+description, если сумм нет
     if salary_from is None and salary_to is None:
         text_blob = " ".join(
             p
@@ -102,7 +87,7 @@ def _enrich_salary_fields(payload: dict) -> dict:
             payload["salary_to_rub"] = parsed.salary_to_rub
             return payload
 
-    # 2) Если суммы есть, но период != month — приводим к месяцу.
+    # 2) Период ≠ month → нормализация к месяцу
     if (salary_from or salary_to) and period and period != "month":
         salary_from, salary_to, period = normalize_period_to_month(
             salary_from, salary_to, period
@@ -111,7 +96,7 @@ def _enrich_salary_fields(payload: dict) -> dict:
         payload["salary_to"] = salary_to
         payload["salary_period"] = period
 
-    # 3) Заполняем RUB-эквивалент, если он не передан явно.
+    # 3) RUB-эквивалент при отсутствии явных rub-полей
     if payload.get("salary_from_rub") is None and payload.get("salary_to_rub") is None:
         sf_rub, st_rub = compute_rub_amounts(
             payload.get("salary_from"), payload.get("salary_to"), currency
@@ -163,7 +148,7 @@ _WORD_SPLIT_RE = re.compile(r"\s+")
 
 
 def _query_words(qt: str) -> list[str]:
-    """Разбиваем поисковую строку на слова длиной >=2, убираем дубли с сохранением порядка."""
+    """Слова длины ≥2 из запроса, порядок сохранён, без дублей"""
     words: list[str] = []
     seen: set[str] = set()
     for raw in _WORD_SPLIT_RE.split(qt.strip()):
@@ -176,7 +161,7 @@ def _query_words(qt: str) -> list[str]:
 
 
 def _word_match_clause(word: str):
-    """Слово ищется в названии, компании, описании, локации и навыках (case-insensitive)."""
+    """Подстрока без учёта регистра: title, company, description, location, skills"""
     pattern = f"%{word}%"
     return or_(
         func.lower(CanonicalVacancy.title).like(pattern),
@@ -191,8 +176,7 @@ def _word_match_clause(word: str):
 
 
 def _array_overlap(column, values: list[str], param_name: str):
-    """`column && ARRAY[...]::text[]` — независимо от того, объявлена колонка как
-    generic ARRAY или postgresql.ARRAY."""
+    """`column && ARRAY[...]` для ARRAY/pg ARRAY"""
     bound = bindparam(param_name, value=values, type_=PG_ARRAY(String), unique=True)
     return column.op("&&")(bound)
 
@@ -200,17 +184,13 @@ def _array_overlap(column, values: list[str], param_name: str):
 def search_vacancies(db: Session, params: VacancySearchParams):
     q = db.query(CanonicalVacancy).filter(CanonicalVacancy.status == params.status)
 
-    # Полнотекст / название / компания — единый текстовый поиск.
-    # Стратегия: поисковую строку разбиваем на слова и каждое слово должно
-    # встречаться (как подстрока, без учёта регистра) в одном из текстовых
-    # полей вакансии. Это даёт предсказуемое поведение и работает как для
-    # русского, так и для английского без необходимости в стемминге.
+    # Текстовый поиск: каждое слово ≥2 символов как подстрока (AND по словам); без стемминга
     qt = (params.query or params.title or params.q or "").strip()
     words: list[str] = []
     if qt:
         words = _query_words(qt)
         if not words:
-            # Запрос целиком из коротких токенов — ищем как одну подстроку.
+            # Только короткие токены — один запрос как подстрока целиком
             q = q.filter(_word_match_clause(qt.lower()))
         else:
             for word in words:
@@ -265,9 +245,7 @@ def search_vacancies(db: Session, params: VacancySearchParams):
         q = q.filter(CanonicalVacancy.experience_level == params.experience_level)
 
     if params.salary_from is not None:
-        # Фильтр «зарплата от» применяем по рублёвому эквиваленту: пользователь
-        # вводит сумму в рублях, а мы сравниваем её со всеми вакансиями
-        # независимо от исходной валюты.
+        # «От» в рублях против salary_*_rub (любая исходная валюта)
         q = q.filter(
             or_(
                 CanonicalVacancy.salary_from_rub >= params.salary_from,
@@ -319,27 +297,14 @@ def search_vacancies(db: Session, params: VacancySearchParams):
 
 
 def _build_order_clauses(sort_mode: str, query_text: str, query_words: list[str]):
-    """
-    Возвращает список выражений для ORDER BY в зависимости от режима сортировки.
-
-    - `date` — самые свежие сверху (NULL в конец).
-    - `salary` — сначала вакансии с указанной зарплатой (NULL в конец),
-      сравниваем по верхней границе вилки или по нижней, если верхней нет;
-      внутри одинаковой зарплаты — по дате публикации.
-    - `relevance` (по умолчанию) — если задан текстовый запрос, сначала идут
-      вакансии, у которых первое слово запроса встречается в title (точное
-      попадание считается самым релевантным сигналом). Без запроса работает как
-      `date`.
-    """
+    """ORDER BY: date | salary (через RUB) | relevance (первое слово в title)"""
     sort_mode = sort_mode if sort_mode in {"relevance", "date", "salary"} else "relevance"
 
     if sort_mode == "date":
         return [CanonicalVacancy.published_at.desc().nullslast()]
 
     if sort_mode == "salary":
-        # Сортируем строго по рублёвому эквиваленту, чтобы вакансии в USD/EUR
-        # корректно встраивались в общий список (а не оказывались внизу из-за
-        # маленьких цифр в исходной валюте).
+        # Зарплата: сравнение по RUB, иначе USD/EUR «внизу» из-за сырых чисел
         salary_expr = func.coalesce(
             CanonicalVacancy.salary_to_rub,
             CanonicalVacancy.salary_from_rub,
@@ -385,7 +350,7 @@ def truncate_all_vacancies(db: Session) -> tuple[int, int]:
     """Delete all raw and canonical vacancies. Returns (raw_deleted, canonical_deleted)."""
     raw_count = db.query(RawVacancy).count()
     canonical_count = db.query(CanonicalVacancy).count()
-    # Сначала canonical + CASCADE (таблица dedup_log ссылается на canonical_vacancies), затем raw.
+    # TRUNCATE: сначала canonical (CASCADE на dedup_log), потом raw
     db.execute(text("TRUNCATE TABLE canonical_vacancies RESTART IDENTITY CASCADE"))
     db.execute(text("TRUNCATE TABLE raw_vacancies RESTART IDENTITY CASCADE"))
     db.commit()

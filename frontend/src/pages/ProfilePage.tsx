@@ -84,7 +84,7 @@ export default function ProfilePage({ user }: Props) {
         if (!initialForm.full_name && user?.full_name) {
           initialForm.full_name = user.full_name;
         }
-        // back-fill first/last name from full_name if not yet stored separately
+        // Имя и фамилия из full_name, если в профиле ещё пусто
         if (!initialForm.first_name && !initialForm.last_name) {
           const source = initialForm.full_name ?? user?.full_name ?? "";
           const parts = source.trim().split(/\s+/);
@@ -199,10 +199,7 @@ export default function ProfilePage({ user }: Props) {
     return m[level ?? ""] ?? 3;
   }
 
-  /**
-   * Грубое сопоставление произвольной строки города из PDF к канонической локации.
-   * Возвращает код из CITIES или undefined.
-   */
+  /** Город из PDF → код CITIES (подстрочное совпадение) */
   function matchCity(raw: string | undefined | null): string | undefined {
     if (!raw) return undefined;
     const r = raw.toLowerCase().trim();
@@ -210,7 +207,7 @@ export default function ProfilePage({ user }: Props) {
       c => c.label.toLowerCase() === r || c.value === r,
     );
     if (found) return found.value;
-    // частичное вхождение
+    // Частичное совпадение подстроки
     const partial = CITIES.find(c => r.includes(c.label.toLowerCase()));
     return partial?.value;
   }
@@ -238,9 +235,7 @@ export default function ProfilePage({ user }: Props) {
           last_name: prof.lastName || null,
           patronymic: prof.middleName || null,
           location: matchCity(prof.city) || null,
-          // specialization / target_industry оставляем на ручной выбор пользователя:
-          // в hh.ru-резюме они хранятся свободным текстом и не отображаются на
-          // канонические коды без потерь.
+          // specialization / target_industry — вручную: в hh-резюме свободный текст, автокодирование с потерями
         };
       }
 

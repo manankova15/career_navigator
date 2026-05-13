@@ -504,7 +504,7 @@ def split_location(location: str | None) -> tuple[str | None, str | None]:
     if city is None and parts:
         head = parts[0]
         head_low = head.lower()
-        # Если строка похожа на "Город (область)" — берём её как город.
+        # «Город (область)» — взять левую часть как город
         if 2 <= len(head) <= 60 and not any(
             t in head_low for t in _REMOTE_LOCATION_TOKENS
         ):
@@ -517,18 +517,7 @@ def split_location(location: str | None) -> tuple[str | None, str | None]:
 
 
 def _recompute_salary_for_row(row) -> dict | None:
-    """
-    Пересчитывает поля зарплаты для одной канонической вакансии.
-
-    Логика:
-      1) Если у TG-вакансий старого формата уже стоят salary_from/to с явно
-         подозрительной валютой (например, RUB при наличии $ в описании),
-         или вообще распознан мусор — переиспользуем новый парсер.
-      2) Если парсер из текста ничего не нашёл, но в БД есть salary_from/to
-         с валютой — приводим к месяцу и считаем RUB-эквивалент.
-
-    Возвращает dict с обновлёнными полями (или None если ничего не изменилось).
-    """
+    """Пересчёт salary_*: новый parse_salary при подозрительной валюте/мусоре; иначе месяц + RUB; None если без изменений"""
     text_blob = " ".join(p for p in (row.title, row.description) if p)
 
     parsed = parse_salary(text_blob)
@@ -663,7 +652,7 @@ def main() -> int:
     _load_env()
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
-        # При запуске вне docker-compose используем локальный порт.
+        # Локальный порт вне docker-compose
         db_url = (
             "postgresql://"
             f"{os.getenv('POSTGRES_USER', 'career_navigator')}:"

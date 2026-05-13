@@ -79,7 +79,7 @@ from salary_parser import parse_salary as _parse_salary_full  # noqa: E402
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CHANNELS_FILE = os.getenv("TELEGRAM_CHANNELS", os.path.join(SCRIPT_DIR, "telegram_channels.txt"))
 
-# Один канал, если не используем файл
+# Канал по умолчанию, если нет файла со списком
 TELEGRAM_CHANNEL_DEFAULT = os.getenv("TELEGRAM_CHANNEL", "job_for_analysts")
 
 # Количество вакансий для загрузки (всего со всех каналов)
@@ -91,8 +91,7 @@ REQUEST_DELAY = 1.5
 
 VACANCY_SERVICE_URL = os.getenv("VACANCY_SERVICE_URL", "http://localhost:8004")
 
-# Имя сессии по умолчанию (Telethon добавит суффикс `.session` к пути).
-# После загрузки .env в main() можно переопределить через TELEGRAM_SESSION.
+# Имя сессии Telethon (к пути добавится .session); после load_dotenv — TELEGRAM_SESSION
 _DEFAULT_TG_SESSION = os.path.join(SCRIPT_DIR, ".tg_session")
 
 
@@ -449,7 +448,7 @@ def post_vacancy(vacancy_data: dict) -> bool:
         return False
 
 
-# ── Основная логика с Telethon ────────────────────────────────────────────────
+# ── Telethon: сбор вакансий ─────────────────────────────────────────────────────
 
 async def collect_vacancies():
     try:

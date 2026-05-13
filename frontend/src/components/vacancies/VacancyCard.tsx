@@ -27,7 +27,7 @@ export function salaryString(v: Vacancy): string | null {
   if (!v.salary_from && !v.salary_to) return null;
   const parts = [v.salary_from, v.salary_to].filter(Boolean).map(n => n!.toLocaleString("ru-RU"));
   const sym = currencyDisplaySymbol(vacancySalaryCurrency(v));
-  // Все суммы хранятся приведёнными к месяцу — отображаем с пометкой /мес.
+  // Месячный эквивалент в БД — суффикс /мес
   return `${parts.join(" – ")} ${sym}/мес`.trim();
 }
 

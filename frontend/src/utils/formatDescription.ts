@@ -1,78 +1,58 @@
 /**
- * Formats vacancy descriptions for safe rendering.
- *
- * Handles two formats:
- *  1. HTML (from HH.ru) — cleaned and rendered via dangerouslySetInnerHTML
- *  2. Telegram Markdown-like text — converted to HTML
+ * Безопасный HTML и Telegram-подобный текст → HTML для рендера
  */
 
-/**
- * Returns true if the string looks like it contains HTML markup.
- */
+/** Эвристика: в строке есть HTML-теги */
 export function isHtml(text: string): boolean {
   return /<(p|br|ul|li|strong|b|em|i|h[1-6]|div|span|a)[^>]*>/i.test(text);
 }
 
-/**
- * Sanitise an HTML vacancy description.
- * Keeps structural/formatting tags, removes scripts/styles/iframes/forms.
- */
+/** HTML описания: структурные теги, без script/style/iframe/form */
 export function sanitizeHtml(html: string): string {
-  // Remove dangerous tags entirely (with content)
+  // script / style / iframe / form
   let s = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
     .replace(/<form[\s\S]*?<\/form>/gi, "");
 
-  // Strip event handlers and javascript: hrefs from any tag
+  // on* и javascript: в href
   s = s.replace(/\s(on\w+)="[^"]*"/gi, "");
   s = s.replace(/\s(on\w+)='[^']*'/gi, "");
   s = s.replace(/href\s*=\s*["']javascript:[^"']*["']/gi, 'href="#"');
 
-  // Open all links in new tab
+  // Ссылки — target=_blank
   s = s.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ');
 
   return s;
 }
 
-/**
- * Convert Telegram-style plain text to HTML.
- * Handles:
- *  - **bold** → <strong>
- *  - *italic* → <em>
- *  - `code` → <code>
- *  - [text](url) → <a href>
- *  - ▪️ / • / – / * at line start → <li> items
- *  - Double newlines → paragraphs
- *  - Single newlines → <br>
- *  - Emoji bullet lists
- */
+/** Plain text: markdown-подобная разметка, списки, переносы → HTML */
 export function telegramToHtml(text: string): string {
-  // Escape HTML entities first (avoid double-escaping)
+  // Экранирование & < >
   let s = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-  // Markdown links [text](url)
+  // Markdown [text](url)
   s = s.replace(
     /\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
   );
 
-  // Bold: **text** or __text__
+  // **bold** / __bold__
   s = s.replace(/\*\*(.+?)\*\*/gs, "<strong>$1</strong>");
   s = s.replace(/__(.+?)__/gs, "<strong>$1</strong>");
 
-  // Italic: *text* or _text_ (single, not already inside strong)
+  // *italic* / _italic_ (вне strong)
   s = s.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/gs, "<em>$1</em>");
   s = s.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/gs, "<em>$1</em>");
 
-  // Inline code: `code`
+  // `code`
   s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
 
-  // Split into lines for list/paragraph handling
+  // Построчно: списки и <br>
   const lines = s.split("\n");
   const out: string[] = [];
   let inList = false;
@@ -81,24 +61,23 @@ export function telegramToHtml(text: string): string {
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Detect bullet: emoji bullets (▪️ ▸ ◾ • ➤ ✅ ✔️ →), dash -, asterisk *
+    // Маркеры списка (emoji, -, *)
     const isBullet = /^(▪️|▸|◾|◼|•|➤|✅|✔️|→|🔹|🔸|📌|▶|»|-|\*)\s/.test(trimmed);
 
     if (isBullet) {
       if (!inList) { out.push("<ul>"); inList = true; }
-      // Remove the bullet character
       const content = trimmed.replace(/^(▪️|▸|◾|◼|•|➤|✅|✔️|→|🔹|🔸|📌|▶|»|-|\*)\s+/, "");
       out.push(`<li>${content}</li>`);
     } else {
       if (inList) { out.push("</ul>"); inList = false; }
       if (trimmed === "") {
-        // Empty line → paragraph break
+        // Пустая строка
         if (out.length > 0 && out[out.length - 1] !== "<br>") {
           out.push("<br>");
         }
       } else {
         out.push(line);
-        // Add <br> after non-empty, non-last lines
+        // <br> между непустыми строками
         if (i < lines.length - 1 && lines[i + 1].trim() !== "") {
           out.push("<br>");
         }
@@ -110,10 +89,7 @@ export function telegramToHtml(text: string): string {
   return out.join("\n");
 }
 
-/**
- * Prepare a vacancy description for rendering.
- * Returns { html, isHtmlContent } — use dangerouslySetInnerHTML with `html`.
- */
+/** Подготовка описания вакансии к рендеру (HTML или telegramToHtml) */
 export function prepareDescription(description: string | null | undefined): string {
   if (!description) return "";
 

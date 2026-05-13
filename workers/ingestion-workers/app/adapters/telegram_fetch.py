@@ -1,7 +1,4 @@
-"""
-Загрузка вакансий из одного Telegram-канала (Telethon) → vacancy-service /internal/canonical.
-Логика парсинга сообщений — telegram_parse (как в scripts/seed_telegram_vacancies.py).
-"""
+"""Telethon → vacancy-service /internal/canonical; разбор текста — telegram_parse (как seed_telegram_vacancies)"""
 
 from __future__ import annotations
 
@@ -20,12 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramSessionNotAuthorizedError(RuntimeError):
-    """Сессия Telethon не авторизована в контейнере worker'а.
-
-    Это ожидаемая ситуация до первой интерактивной авторизации: Telethon не
-    может запросить номер/код внутри фоновой задачи Celery (там нет TTY и
-    любой input() моментально падает EOFError'ом).
-    """
+    """Telethon не авторизован в worker: в Celery нет TTY, интерактивный вход невозможен (EOFError на input)"""
 
 
 

@@ -9,11 +9,11 @@ class ProfileIn(BaseModel):
     first_name: str | None = Field(None, max_length=100)
     last_name: str | None = Field(None, max_length=100)
     patronymic: str | None = Field(None, max_length=100)
-    # Канонический код города (см. фронтовый CITIES).
+    # Код города (CITIES)
     location: str | None = Field(None, max_length=64)
-    # Канонический код специализации (см. SPECIALIZATION_OPTIONS).
+    # Код специализации (SPECIALIZATION_OPTIONS)
     specialization: str | None = Field(None, max_length=64)
-    # Канонический код профессиональной области (см. PROFESSION_AREAS).
+    # Код области (PROFESSION_AREAS)
     target_industry: str | None = Field(None, max_length=64)
 
 

@@ -303,7 +303,7 @@ def submit_assessment_attempt(
                 )
 
     attempt = submit_attempt(db, user_id, assessment, payload.answers, existing_attempt=existing_attempt)
-    # Уведомить analytics для дашборда (статистика и «Последние задания»)
+    # Событие в analytics (дашборд)
     try:
         with httpx.Client(timeout=5.0) as client:
             client.post(

@@ -129,8 +129,7 @@ export default function VacancyDetailPage() {
       .filter(Boolean)
       .map(n => n!.toLocaleString("ru-RU"));
     const sym = currencyDisplaySymbol(vacancySalaryCurrency(vacancy!));
-    // Внутри БД зарплата всегда хранится приведённой к месяцу. Если в источнике
-    // был указан другой период — нормализатор уже разделил/умножил суммы.
+    // Суммы в БД уже в месячном эквиваленте (нормализация при ingest)
     const periodValue = vacancy!.salary_period || "month";
     const period = SALARY_PERIOD_LABEL[periodValue] ?? periodValue;
     const gross = vacancy!.salary_gross_type

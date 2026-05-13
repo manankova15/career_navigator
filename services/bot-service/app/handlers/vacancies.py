@@ -149,7 +149,7 @@ async def cb_vacancy_nav(call: CallbackQuery) -> None:
 async def cb_vacancy_apply(call: CallbackQuery) -> None:
     vacancy_id = call.data.split(":", 1)[1]
     nav = await get_vacancy_nav(call.from_user.id)
-    # Find vacancy in nav list to get canonical_url
+    # canonical_url из текущего списка навигации
     canonical = None
     if nav:
         for v in nav.vacancies:

@@ -1,11 +1,7 @@
-"""
-Сопоставление свободного текста (`target_role`, `headline`, `target_industry`)
-с каноническими `profession_area` / `specialization`, как в
-``scripts/backfill_classification.py``.
+"""Классификация свободного текста в profession_area / specialization (как backfill_classification)
 
-Дублируем правила здесь, а не импортируем из scripts/, потому что
-recommendation-service собирается отдельным Docker-образом без доступа к
-scripts/. Логика правил и значения категорий **идентичны** seed-скриптам.
+Правила продублированы здесь: отдельный Docker-образ recommendation-service без каталога scripts/
+Значения категорий синхронизированы с seed-скриптами
 """
 
 from __future__ import annotations
@@ -47,8 +43,7 @@ _AREA_RULES: list[tuple[tuple[str, ...], str]] = [
     (("медицин", "врач", "nurse", "medicine", "медсестр"), "medicine"),
 ]
 
-# Маппинг ключевых слов общей индустрии → канонический profession_area.
-# Используется как мягкий fallback, если по target_role ничего не извлеклось.
+# Fallback индустрия → profession_area, если target_role не дал совпадения
 _INDUSTRY_FALLBACK: dict[str, str] = {
     "it": "it",
     "айти": "it",

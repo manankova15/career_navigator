@@ -77,12 +77,7 @@ def _rec_to_out(
 def _live_rescore(
     db: Session, user_id: UUID, recs: list[VacancyRecommendation]
 ) -> list[tuple[VacancyRecommendation, float, float, float | None]]:
-    """Пересчитываем S(u, v) для всех рекомендаций активной сессии под
-    актуальный AffinityProfile (см. модель v3 §5).
-
-    Любой свежий лайк/кнопка пользователя тут же отражается на следующем
-    /recommendations/me, без обращения к ml-service.
-    """
+    """Пересчёт финального скора по AffinityProfile без вызова ml-service (модель v3 §5)"""
     affinity = build_affinity(db, user_id)
     scored: list[tuple[VacancyRecommendation, float, float, float | None]] = []
     persist: dict[UUID, float] = {}
@@ -113,32 +108,20 @@ async def get_my_recommendations(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Return the latest recommendation session with live personalization.
-
-    On every request we recompute the personalization boost from the user's
-    current interactions so that a brand-new like, dislike or 'not interested'
-    click propagates into match percentages without waiting for a refresh.
-    """
+    """Последняя сессия; персонализация пересчитывается на каждый запрос из текущих реакций"""
     session = get_latest_session(db, user_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No recommendations yet. Call POST /recommendations/refresh first.",
         )
-    # Treat a session with zero scored items as "no recommendations yet". This
-    # can happen if a previous scheduled refresh ran while ml-service or
-    # vacancy-service were unavailable and persisted an empty session. By
-    # returning 404 we let the frontend's refresh-on-404 path kick in and
-    # rebuild the session synchronously from the user's JWT.
+    # Пустая сессия после сбоя пайплайна — отдаём 404, фронт дергает refresh
     if not session.recommendations or (session.total_scored or 0) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No recommendations yet. Call POST /recommendations/refresh first.",
         )
-    # If the latest stored session was produced by an earlier algorithm version,
-    # silently regenerate it from the DB-cached profile so the user immediately
-    # sees scores computed by the current AHP+personalization model without
-    # having to press "Refresh".
+    # Старый algorithm — тихий пересчёт из кэша профиля в БД
     if session.algorithm != CURRENT_ALGORITHM:
         try:
             refreshed = run_recommendation_from_db_profile(db, user_id)

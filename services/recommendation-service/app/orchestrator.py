@@ -1,22 +1,7 @@
-"""
-Recommendation orchestrator — версия алгоритма ``hybrid_ahp_v3``.
+"""Оркестратор подборки hybrid_ahp_v3: профиль, affinity, кандидаты, ml-service /score, сессия в БД, skill-gap
 
-Pipeline /refresh:
-  1. Загружаем профиль (skills + preferences + likes-обогащение).
-  2. Собираем AffinityProfile (личная история сигналов с time-decay и
-     байесовским shrinkage — см. personalization.py).
-  3. Тянем кандидатов из vacancy-service.
-  4. Зовём ml-service /ml/score, передавая профиль, вакансии **и** behavior-блок
-     (категории/специализации/навыки/тайтлы + множества V⁺/V⁻ + N сигналов).
-     Алгоритм считает S(u, v) = (1−τ)P + τB c мультипликатором и прямыми
-     override-ами (полная формула — в docs/recommendation_model_v3.md).
-  5. Сохраняем результат в БД с расширенным набором фич; повторный
-     персонализационный проход не нужен — ml-service уже учёл affinity.
-  6. Считаем skill-gap по топ-30.
-
-Pipeline /me — лёгкий live-rescore (см. routers.recommendations._live_rescore):
-любая свежая реакция пользователя меняет AffinityProfile, и тот же скор
-пересчитывается без обращения к ml-сервису.
+Формула и детали — docs/recommendation_model_v3.md
+Лёгкий пересчёт без ml — routers.recommendations._live_rescore
 """
 
 from __future__ import annotations
@@ -43,9 +28,7 @@ from .profile_loader import load_profile_bundle
 logger = logging.getLogger(__name__)
 
 
-# Маппинг канонических кодов городов (из CITIES в frontend) на русские
-# названия, которые реально хранятся в vacancy-service (location_city).
-# Нужен, чтобы location_score в ml-service мог сматчить подстрокой.
+# Код города (фронт) → подпись как в vacancy-service для location_score (подстрока)
 _CITY_CODE_TO_RU: dict[str, str] = {
     "remote": "удалённо",
     "moscow": "Москва",
@@ -121,9 +104,7 @@ def _location_code_to_label(code: str | None) -> str | None:
 
 
 def _build_profile_input(profile: dict, prefs: dict, user_id: UUID) -> dict:
-    """После v2 пользователь сам выбирает канонические коды специализации,
-    профессиональной области и города в форме профиля. Никакого regex-
-    классификатора уже не требуется — коды кладутся в скоринг напрямую."""
+    """Профиль v2: канонические коды специализации, области и города без regex-классификатора"""
     target_industry = profile.get("target_industry")
     specialization = profile.get("specialization")
     location_code = profile.get("location")
@@ -169,8 +150,7 @@ def _vacancy_to_input(v: dict) -> dict:
     desc = v.get("description")
     if desc and len(desc) > 8000:
         desc = desc[:8000]
-    # Для скоринга используем рублёвый эквивалент: пользователь выбирает
-    # ожидаемую зарплату в рублях, а у вакансий теперь могут быть USD/EUR/...
+    # Ожидаемая зарплата пользователя в RUB; у вакансий — salary_*_rub при мультивалюте
     salary_from = v.get("salary_from_rub") or v.get("salary_from")
     salary_to = v.get("salary_to_rub") or v.get("salary_to")
     return {
@@ -229,11 +209,8 @@ def run_recommendation_with_profile(
 
     affinity = build_affinity(db, user_id)
 
-    # Note: we intentionally do NOT pre-filter candidate vacancies by location.
-    # Profile stores canonical city codes ("moscow", "spb"), while vacancy DB
-    # stores Russian city names ("Москва", "Санкт-Петербург"). Pre-filtering
-    # would yield 0 matches. Location is already a scoring feature in ml-service
-    # (location_score, weight ≈ 0.02), so ranking handles geographic preference.
+    # Без префильтра по локации: в профиле коды (moscow), в БД — русские названия; иначе 0 совпадений
+    # География — через location_score в ml-service (~0.02)
     try:
         raw_vacancies = fetch_candidate_vacancies(
             page_size=settings.vacancy_fetch_limit,
@@ -272,13 +249,7 @@ def run_recommendation_with_profile(
 
     scored_items = [_scored_to_db_item(r) for r in results][: settings.top_n_store]
 
-    # Guard: never persist an empty session – it would shadow any older, useful
-    # session for the user and break the "refresh-on-404" path on the frontend
-    # (the API would keep returning HTTP 200 with items=[]). Treat empty result
-    # as a transient failure of the upstream pipeline (vacancy-service returned
-    # no candidates, ml-service produced no scores, network blip, etc.) and
-    # surface it as 502 so the caller can retry. Scheduled refresh in
-    # scheduler_jobs.py already catches and logs such exceptions.
+    # Пустую сессию не сохраняем — перекроет старую полезную и сломает refresh на фронте; отдаём 502 для retry
     if not scored_items or total_scored == 0:
         logger.warning(
             "Skipping persistence of empty recommendation session for user=%s "

@@ -14,8 +14,7 @@ export interface RecommendFeedPage {
   total: number;
 }
 
-// Запрашиваем сразу до 100 рекомендаций — пагинация на стороне фронта
-// (компоненты сами решают, сколько показать в featured strip / основной сетке).
+// До 100 записей за запрос; пагинация и сетка на клиенте
 export async function getRecommendations(): Promise<Recommendation[]> {
   const data = await api.get<RecommendFeedPage>("/recommendations/me?page_size=100");
   return data.items ?? [];
@@ -25,7 +24,7 @@ export async function refreshRecommendations(): Promise<void> {
   await api.post("/recommendations/refresh", {});
 }
 
-// Matches SkillGapOut from recommendation-service
+// SkillGapOut (recommendation-service)
 export interface SkillGap {
   skill_name: string;
   importance_score: number;

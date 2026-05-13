@@ -1,16 +1,11 @@
 """
-Seed script: загружает IT-вакансии из публичного API HH.ru
-и добавляет их в vacancy-service через внутренний REST API.
+Seed: IT-вакансии из публичного API hh.ru → vacancy-service (internal REST)
 
-Запуск (пока сервисы в Docker работают):
-    python scripts/seed_hh_vacancies.py
+Запуск при поднятых сервисах: python scripts/seed_hh_vacancies.py
+Зависимость: pip install requests
 
-Требования:
-    pip install requests
-
-Используем официальный публичный API hh.ru:
-  https://api.hh.ru/openapi/redoc  (без авторизации, с ограничением ~200 req/day на IP)
-  Задержка между запросами 0.5с — безопасно, не попадём под блокировку.
+API: https://api.hh.ru/openapi/redoc (~200 req/day/IP без OAuth)
+Пауза между запросами 0.5s
 """
 
 import time
@@ -21,7 +16,7 @@ import requests
 import sys
 import os
 
-# Импортируем классификаторы из backfill-скрипта (он самодостаточный).
+# Классификаторы из backfill_classification (самодостаточный модуль)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from backfill_classification import (  # noqa: E402
     HH_EXPERIENCE_TO_LEVEL,
@@ -52,21 +47,59 @@ HH_MAX_RETRIES = int(os.getenv("HH_MAX_RETRIES", "3"))
 
 FAKE_SOURCE_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://hh.ru"))
 
-# User-Agent для HH API. По требованию HH должен содержать имя приложения и
-# контакт. Можно переопределить через env HH_USER_AGENT.
+# User-Agent с контактом (требование HH, в т.ч. HH-User-Agent)
+_HH_UA = os.getenv(
+    "HH_USER_AGENT",
+    "career-navigator-thesis/1.0 (manankova-15@mail.ru)",
+)
 HEADERS_HH = {
-    "User-Agent": os.getenv(
-        "HH_USER_AGENT",
-        "career-navigator-thesis/1.0 (manankova-15@mail.ru)",
-    ),
+    "User-Agent": _HH_UA,
+    "HH-User-Agent": _HH_UA,
     "Accept": "application/json",
 }
 
-# Если есть OAuth-токен приложения (получить можно на https://dev.hh.ru/admin),
-# подкладываем его — это снимает анти-бот блокировки на анонимные запросы.
-_hh_token = os.getenv("HH_AUTH_TOKEN")
+
+def _fetch_application_token() -> str | None:
+    """OAuth client_credentials при HH_CLIENT_ID/SECRET; без токена публичный API часто 403"""
+    client_id = os.getenv("HH_CLIENT_ID")
+    client_secret = os.getenv("HH_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        return None
+    try:
+        resp = requests.post(
+            f"{HH_API_BASE}/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+            headers={"User-Agent": _HH_UA, "HH-User-Agent": _HH_UA},
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        print(f"  ⚠ Не удалось обратиться к HH /token: {e}")
+        return None
+    if resp.status_code != 200:
+        print(
+            f"  ⚠ HH /token вернул {resp.status_code}: {(resp.text or '')[:300]}"
+        )
+        return None
+    token = resp.json().get("access_token")
+    if token:
+        print("[hh-seed] Получен новый application access-token через client_credentials.")
+    return token
+
+
+# Bearer снижает 403 на анонимных запросах (HH_AUTH_TOKEN или client_credentials)
+_hh_token = os.getenv("HH_AUTH_TOKEN") or _fetch_application_token()
 if _hh_token:
     HEADERS_HH["Authorization"] = f"Bearer {_hh_token}"
+else:
+    print(
+        "[hh-seed] ⚠ HH_AUTH_TOKEN не задан и HH_CLIENT_ID/SECRET не позволили "
+        "перевыпустить токен — HH почти наверняка вернёт 403. "
+        "Заполни их в .env (приложение регистрируется на https://dev.hh.ru/admin)."
+    )
 
 
 def make_admin_jwt() -> str:
@@ -159,7 +192,7 @@ def _hh_get(url: str, params: dict | None = None, timeout: int = 15) -> requests
             time.sleep(delay)
             delay *= 2
             continue
-        # Любая другая ошибка — поднимаем сразу.
+        # Прочие статусы — без ретрая
         resp.raise_for_status()
         return resp
     assert last_resp is not None
@@ -173,17 +206,56 @@ def fetch_vacancy_detail(hh_id: str) -> dict:
 
 
 def ensure_source_exists():
-    """Убеждаемся, что source_id существует в source-service.
-    Если нет — просто используем UUID без создания (vacancy-service не проверяет FK по source_id)."""
+    """Фиктивный source_id (vacancy-service не валидирует FK на source)"""
     return FAKE_SOURCE_ID
+
+
+# Таймаут POST /internal/canonical (синхронный дедуп может быть долгим)
+POST_CANONICAL_TIMEOUT = float(os.getenv("POST_CANONICAL_TIMEOUT", "30"))
+POST_CANONICAL_RETRIES = int(os.getenv("POST_CANONICAL_RETRIES", "3"))
 
 
 def post_canonical(vacancy_data: dict) -> bool:
     url = f"{VACANCY_SERVICE_URL}/internal/canonical"
-    resp = requests.post(url, json=vacancy_data, headers=INTERNAL_HEADERS, timeout=10)
-    if resp.status_code in (200, 201):
-        return True
-    print(f"  ⚠ Ошибка добавления вакансии: {resp.status_code} {resp.text[:200]}")
+    delay = 2.0
+    for attempt in range(1, POST_CANONICAL_RETRIES + 1):
+        try:
+            resp = requests.post(
+                url,
+                json=vacancy_data,
+                headers=INTERNAL_HEADERS,
+                timeout=POST_CANONICAL_TIMEOUT,
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            # Таймаут vacancy-service — backoff, не рвём весь seed
+            if attempt >= POST_CANONICAL_RETRIES:
+                print(
+                    f"  ⚠ vacancy-service не отвечает после {attempt} попыток "
+                    f"({type(e).__name__}: {e}). Пропускаем вакансию."
+                )
+                return False
+            print(
+                f"  … vacancy-service таймаут/недоступен (попытка {attempt}/"
+                f"{POST_CANONICAL_RETRIES}, {type(e).__name__}), повтор через {delay:.0f}s"
+            )
+            time.sleep(delay)
+            delay *= 2
+            continue
+        if resp.status_code in (200, 201):
+            return True
+        # 5xx — ретрай; 4xx — терминально
+        if 500 <= resp.status_code < 600 and attempt < POST_CANONICAL_RETRIES:
+            print(
+                f"  … vacancy-service {resp.status_code} (попытка {attempt}/"
+                f"{POST_CANONICAL_RETRIES}), повтор через {delay:.0f}s"
+            )
+            time.sleep(delay)
+            delay *= 2
+            continue
+        print(
+            f"  ⚠ Ошибка добавления вакансии: {resp.status_code} {resp.text[:200]}"
+        )
+        return False
     return False
 
 
@@ -240,7 +312,7 @@ def run():
             salary_from, salary_to, currency = salary_info(item)
             published_at = item.get("published_at")
 
-            # Получаем детали вакансии (навыки, описание)
+            # Карточка вакансии: описание и ключевые навыки
             time.sleep(HH_DETAIL_DELAY_SEC)
             description = None
             try:
@@ -248,22 +320,19 @@ def run():
                 skills = extract_skills(detail)
                 description = detail.get("description", "") or ""
                 import re
-                # Remove dangerous tags entirely
+                # Санитизация HTML из HH
                 description = re.sub(r"<script[\s\S]*?</script>", "", description, flags=re.IGNORECASE)
                 description = re.sub(r"<iframe[\s\S]*?</iframe>", "", description, flags=re.IGNORECASE)
                 description = re.sub(r"<style[\s\S]*?</style>", "", description, flags=re.IGNORECASE)
-                # Strip inline style and class attributes (they override our CSS)
+                # Убрать style/class
                 description = re.sub(r'\s+style="[^"]*"', "", description, flags=re.IGNORECASE)
                 description = re.sub(r"\s+style='[^']*'", "", description, flags=re.IGNORECASE)
                 description = re.sub(r'\s+class="[^"]*"', "", description, flags=re.IGNORECASE)
                 description = re.sub(r"\s+class='[^']*'", "", description, flags=re.IGNORECASE)
-                # Remove empty paragraphs and divs left after stripping
                 description = re.sub(r"<(p|div)[^>]*>\s*</\1>", "", description, flags=re.IGNORECASE)
-                # Replace non-breaking spaces
                 description = description.replace("&nbsp;", " ")
-                # Collapse multiple blank lines
                 description = re.sub(r"(\s*<br\s*/?>){3,}", "<br><br>", description, flags=re.IGNORECASE)
-                # Open all links in new tab
+                # Ссылки в новой вкладке
                 description = re.sub(r"<a\s", '<a target="_blank" rel="noopener noreferrer" ', description, flags=re.IGNORECASE)
                 description = description.strip()[:8000]
             except Exception as e:
@@ -282,8 +351,7 @@ def run():
                 seniority = HH_EXPERIENCE_TO_SENIORITY.get(hh_exp_id)
             city_guess, country_guess = split_location(location)
 
-            # Считаем RUB-эквивалент: HH-вакансии могут быть в USD/EUR/KZT,
-            # а сортировка и фильтр по зарплате идут в рублях.
+            # RUB для сортировки при мультивалюте HH
             salary_from_rub, salary_to_rub = compute_rub_amounts(
                 salary_from, salary_to, currency
             )

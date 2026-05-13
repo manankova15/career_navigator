@@ -1,6 +1,6 @@
 import { api } from "./client";
 
-// Matches AssessmentOut from assessment-service
+// AssessmentOut (assessment-service)
 export interface AssessmentSummary {
   id: string;
   title: string;
@@ -12,7 +12,7 @@ export interface AssessmentSummary {
   item_count: number;
 }
 
-// Matches AssessmentWithItemsOut
+// AssessmentWithItemsOut
 export interface AssessmentDetail extends AssessmentSummary {
   items: AssessmentItem[];
 }
@@ -39,7 +39,7 @@ export interface AnswerResult {
   auto_feedback?: string | null;
 }
 
-// Matches AttemptSummaryOut / AttemptOut
+// AttemptSummaryOut / AttemptOut
 export interface AttemptResult {
   id: string;
   assessment_id: string;
