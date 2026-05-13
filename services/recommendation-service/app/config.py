@@ -18,9 +18,9 @@ class RecSettings(BaseSettings):
     internal_token: str = "change_me_internal_token"
 
     # How many vacancy candidates to fetch before scoring
-    vacancy_fetch_limit: int = 300
-    # Store top-N recommendations per session
-    top_n_store: int = 50
+    vacancy_fetch_limit: int = 1000
+    # Store top-N recommendations per session (фронт запрашивает до 100)
+    top_n_store: int = 150
 
     # Scheduled refresh (same DB as profiles — no JWT required)
     enable_scheduled_refresh: bool = True

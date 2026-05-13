@@ -13,6 +13,8 @@ class RecommendationOut(BaseModel):
     personal_boost: float = 0.0
     direct_signal: float | None = None
     ml_score: float | None = None
+    category_score: float = 0.5
+    specialization_score: float = 0.5
     skill_score: float
     role_score: float = 0.0
     location_score: float
@@ -72,6 +74,8 @@ class RecommendFeedPage(BaseModel):
 class VacancyLikeIn(BaseModel):
     vacancy_title: str | None = None
     vacancy_skills: list[str] = Field(default_factory=list)
+    vacancy_category: str | None = None
+    vacancy_specialization: str | None = None
 
 
 class LikedVacancyOut(BaseModel):
@@ -79,6 +83,8 @@ class LikedVacancyOut(BaseModel):
     vacancy_id: UUID
     vacancy_title: str | None
     vacancy_skills: list[str]
+    vacancy_category: str | None = None
+    vacancy_specialization: str | None = None
     liked_at: datetime
 
     model_config = {"from_attributes": True}
@@ -90,6 +96,8 @@ class InteractionIn(BaseModel):
     source: str | None = None
     vacancy_title: str | None = None
     vacancy_skills: list[str] = Field(default_factory=list)
+    vacancy_category: str | None = None
+    vacancy_specialization: str | None = None
 
 
 class InteractionOut(BaseModel):

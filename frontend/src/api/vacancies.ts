@@ -10,6 +10,10 @@ export interface Vacancy {
   /** Валюта зарплаты (ТЗ); для старых данных допускается `currency` */
   salary_currency?: string | null;
   currency?: string | null;
+  /** Рублёвый эквивалент (приведён к месяцу) — используется backend-ом
+   * для сортировки и фильтрации по зарплате независимо от валюты. */
+  salary_from_rub?: number | null;
+  salary_to_rub?: number | null;
   seniority?: string | null;
   experience_level?: string | null;
   employment_type?: string[] | null;
@@ -40,6 +44,8 @@ export interface VacanciesPage {
   pages?: number;
 }
 
+export type VacancySortMode = "relevance" | "date" | "salary";
+
 export interface VacancySearchParams {
   page?: number;
   page_size?: number;
@@ -55,11 +61,8 @@ export interface VacancySearchParams {
   salary_from?: number;
   salary_currency?: string;
   has_salary?: boolean;
-  skills?: string[];
-  english_level?: string;
-  education_level?: string;
-  published_within?: string;
   seniority?: string;
+  sort?: VacancySortMode;
 }
 
 function appendCsv(search: URLSearchParams, key: string, values: string[] | undefined) {
@@ -70,7 +73,7 @@ function appendCsv(search: URLSearchParams, key: string, values: string[] | unde
 export async function getVacancies(params: VacancySearchParams = {}): Promise<VacanciesPage> {
   const {
     page = 1,
-    page_size = 12,
+    page_size = 13,
     query = "",
     profession_area = [],
     specialization = "",
@@ -83,11 +86,8 @@ export async function getVacancies(params: VacancySearchParams = {}): Promise<Va
     salary_from,
     salary_currency = "",
     has_salary,
-    skills = [],
-    english_level = "",
-    education_level = "",
-    published_within = "",
     seniority = "",
+    sort,
   } = params;
   const search = new URLSearchParams({ page: String(page), page_size: String(page_size) });
   if (query.trim()) search.set("query", query.trim());
@@ -102,11 +102,8 @@ export async function getVacancies(params: VacancySearchParams = {}): Promise<Va
   if (salary_from != null && salary_from > 0) search.set("salary_from", String(salary_from));
   if (salary_currency) search.set("salary_currency", salary_currency);
   if (has_salary === true) search.set("has_salary", "true");
-  appendCsv(search, "skills", skills);
-  if (english_level) search.set("english_level", english_level);
-  if (education_level) search.set("education_level", education_level);
-  if (published_within) search.set("published_within", published_within);
   if (seniority) search.set("seniority", seniority);
+  if (sort && sort !== "relevance") search.set("sort", sort);
   return api.get<VacanciesPage>(`/vacancies?${search.toString()}`);
 }
 
@@ -127,7 +124,12 @@ function getUserIdFromToken(): string | null {
 export async function recordVacancyInterest(
   vacancyId: string,
   interested: boolean,
-  context?: { vacancyTitle?: string | null; vacancySkills?: string[] },
+  context?: {
+    vacancyTitle?: string | null;
+    vacancySkills?: string[];
+    vacancyCategory?: string | null;
+    vacancySpecialization?: string | null;
+  },
 ): Promise<void> {
   const userId = getUserIdFromToken();
 
@@ -149,6 +151,8 @@ export async function recordVacancyInterest(
       source: "detail_page",
       vacancy_title: context?.vacancyTitle ?? null,
       vacancy_skills: context?.vacancySkills ?? [],
+      vacancy_category: context?.vacancyCategory ?? null,
+      vacancy_specialization: context?.vacancySpecialization ?? null,
     })
     .catch(() => {});
 
@@ -157,4 +161,25 @@ export async function recordVacancyInterest(
 
 export function vacancySalaryCurrency(v: Vacancy): string {
   return v.salary_currency || v.currency || "RUB";
+}
+
+/**
+ * Возвращает значок/код валюты для отображения. Для популярных валют — символ
+ * (₽, $, €, £), для остальных (USDT, KZT, BYN, GEL, GBP др.) — ISO-код.
+ */
+export function currencyDisplaySymbol(currency: string): string {
+  const c = currency.toUpperCase();
+  switch (c) {
+    case "RUB":
+    case "RUR":
+      return "₽";
+    case "USD":
+      return "$";
+    case "EUR":
+      return "€";
+    case "GBP":
+      return "£";
+    default:
+      return c;
+  }
 }

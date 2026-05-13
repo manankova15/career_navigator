@@ -13,11 +13,13 @@ from sqlalchemy.orm import Session
 
 
 def load_profile_bundle(db: Session, user_id: UUID) -> dict[str, Any] | None:
+    """После v2 профиль хранит канонические коды напрямую, поэтому никакого
+    текстового classifier'а в этом пути уже нет."""
     uid = str(user_id)
     meta = db.execute(
         text(
             """
-            SELECT p.target_role, p.headline, p.summary
+            SELECT p.location, p.specialization, p.target_industry
             FROM profiles p
             WHERE p.user_id = CAST(:uid AS uuid)
             """
@@ -30,8 +32,7 @@ def load_profile_bundle(db: Session, user_id: UUID) -> dict[str, Any] | None:
     pref = db.execute(
         text(
             """
-            SELECT pp.preferred_locations, pp.work_formats, pp.target_roles,
-                   pp.salary_from, pp.salary_to, pp.seniority
+            SELECT pp.work_formats, pp.salary_from, pp.salary_to, pp.seniority
             FROM profile_preferences pp
             JOIN profiles p ON p.id = pp.profile_id
             WHERE p.user_id = CAST(:uid AS uuid)
@@ -57,9 +58,7 @@ def load_profile_bundle(db: Session, user_id: UUID) -> dict[str, Any] | None:
     prefs: dict[str, Any] = {}
     if pref:
         prefs = {
-            "preferred_locations": list(pref["preferred_locations"] or []),
             "work_formats": list(pref["work_formats"] or []),
-            "target_roles": list(pref["target_roles"] or []),
             "salary_from": pref["salary_from"],
             "salary_to": pref["salary_to"],
             "seniority": pref["seniority"],
@@ -68,7 +67,7 @@ def load_profile_bundle(db: Session, user_id: UUID) -> dict[str, Any] | None:
     return {
         "skills": skills,
         "preferences": prefs,
-        "target_role": meta.get("target_role"),
-        "headline": meta.get("headline"),
-        "summary": meta.get("summary"),
+        "location": meta.get("location"),
+        "specialization": meta.get("specialization"),
+        "target_industry": meta.get("target_industry"),
     }

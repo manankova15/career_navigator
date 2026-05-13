@@ -11,6 +11,7 @@ from ..crud import (
     count_user_attempts_for_assessment,
     create_assessment,
     delete_assessment,
+    delete_item,
     get_assessment,
     get_attempt,
     get_in_progress_attempt,
@@ -18,6 +19,7 @@ from ..crud import (
     start_attempt,
     submit_attempt,
     update_assessment,
+    update_item,
 )
 from ..database import get_db
 from ..schemas import (
@@ -26,6 +28,7 @@ from ..schemas import (
     AssessmentItemAdminOut,
     AssessmentItemCreate,
     AssessmentItemOut,
+    AssessmentItemUpdate,
     AssessmentOut,
     AssessmentPage,
     AssessmentUpdate,
@@ -202,6 +205,37 @@ def add_item(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
     return _item_admin_out(item)
+
+
+@router.patch(
+    "/items/{item_id}",
+    response_model=AssessmentItemAdminOut,
+)
+def patch_assessment_item(
+    item_id: UUID,
+    payload: AssessmentItemUpdate,
+    db: Session = Depends(get_db),
+    _admin_id: UUID = Depends(require_admin),
+):
+    """Admin: update fields of a single assessment item."""
+    item = update_item(db, item_id, payload)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    return _item_admin_out(item)
+
+
+@router.delete(
+    "/items/{item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_assessment_item(
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    _admin_id: UUID = Depends(require_admin),
+):
+    """Admin: delete a single assessment item."""
+    if not delete_item(db, item_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
 
 # ── Start attempt (for save/resume) ────────────────────────────────────────────

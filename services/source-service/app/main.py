@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from .config import settings
+from .routers.ingestion_runs import router as ingestion_runs_router
 from .routers.sources import router as sources_router
 
 app = FastAPI(
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(sources_router)
+app.include_router(ingestion_runs_router)
 
 
 @app.get("/health", tags=["meta"])

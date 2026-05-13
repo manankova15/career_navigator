@@ -17,6 +17,11 @@ import {
   uploadResumePdf,
   type ResumeStatusBundle,
 } from "../api/resume";
+import {
+  CITIES,
+  PROFESSION_AREAS,
+  SPECIALIZATION_OPTIONS,
+} from "../components/vacancies/vacanciesConstants";
 import { MeResponse } from "../api/auth";
 import Spinner from "../components/Spinner";
 import ErrorBanner from "../components/ErrorBanner";
@@ -49,9 +54,7 @@ export default function ProfilePage({ user }: Props) {
   const skillInputRef = useRef<HTMLInputElement>(null);
 
   const emptyPrefs = (): ProfilePreferences => ({
-    preferred_locations: [],
     work_formats: [],
-    target_roles: [],
     salary_from: null,
     salary_to: null,
     seniority: null,
@@ -107,9 +110,7 @@ export default function ProfilePage({ user }: Props) {
           setPrefs({
             ...emptyPrefs(),
             ...p,
-            preferred_locations: p.preferred_locations ?? [],
             work_formats: p.work_formats ?? [],
-            target_roles: p.target_roles ?? [],
           });
         } else setPrefs(emptyPrefs());
       })
@@ -198,6 +199,22 @@ export default function ProfilePage({ user }: Props) {
     return m[level ?? ""] ?? 3;
   }
 
+  /**
+   * Грубое сопоставление произвольной строки города из PDF к канонической локации.
+   * Возвращает код из CITIES или undefined.
+   */
+  function matchCity(raw: string | undefined | null): string | undefined {
+    if (!raw) return undefined;
+    const r = raw.toLowerCase().trim();
+    const found = CITIES.find(
+      c => c.label.toLowerCase() === r || c.value === r,
+    );
+    if (found) return found.value;
+    // частичное вхождение
+    const partial = CITIES.find(c => r.includes(c.label.toLowerCase()));
+    return partial?.value;
+  }
+
   async function handleApplyResumeDraft() {
     const draft = resumeBundle?.draft;
     const parsed = draft?.draft_json?.parsed as Record<string, unknown> | undefined;
@@ -209,35 +226,26 @@ export default function ProfilePage({ user }: Props) {
     setResumeErr("");
     try {
       const prof = (parsed.profile as Record<string, string | undefined>) || {};
-      const city = prof.city || "";
       const job = (parsed.job as Record<string, unknown>) || {};
-      const specs = (job.specializations as string[]) || [];
-      const desired = (job.desiredPosition as string) || "";
       const salaryFrom = (job.salaryFrom as number) ?? (job.salaryAmount as number) ?? null;
       const schedules = (job.workSchedules as string[]) || [];
 
       const body: Record<string, unknown> = {};
 
       if (resumeApply.profile) {
-        const metro = prof.metro || "";
         body.profile = {
           first_name: prof.firstName || null,
           last_name: prof.lastName || null,
           patronymic: prof.middleName || null,
-          location: [city, metro].filter(Boolean).join(", ") || null,
-          target_role: desired || null,
-          headline: (job.resumeTitleRaw as string) || desired || null,
-          summary: [parsed.aboutMe, parsed.additionalInfo].filter(Boolean).join("\n\n") || null,
-          bio: (parsed.aboutMe as string) || null,
+          location: matchCity(prof.city) || null,
+          // specialization / target_industry оставляем на ручной выбор пользователя:
+          // в hh.ru-резюме они хранятся свободным текстом и не отображаются на
+          // канонические коды без потерь.
         };
       }
 
       if (resumeApply.prefs) {
-        const roles = [...specs];
-        if (desired && !roles.includes(desired)) roles.unshift(desired);
         body.preferences = {
-          target_roles: roles,
-          preferred_locations: city ? [city] : [],
           work_formats: scheduleToWorkFormats(schedules),
           salary_from: salaryFrom,
           salary_to: (job.salaryTo as number) ?? null,
@@ -289,15 +297,13 @@ export default function ProfilePage({ user }: Props) {
       setSkills(sk);
       if (pref) {
         setPrefs({
-          preferred_locations: pref.preferred_locations ?? [],
           work_formats: pref.work_formats ?? [],
-          target_roles: pref.target_roles ?? [],
           salary_from: pref.salary_from ?? null,
           salary_to: pref.salary_to ?? null,
           seniority: pref.seniority ?? null,
         });
       }
-      setResumeHint("Готово. При необходимости отредактируйте поля и нажмите «Сохранить профиль» внизу страницы.");
+      setResumeHint("Готово. Выберите специализацию и отрасль вручную, затем нажмите «Сохранить профиль».");
     } catch (err: unknown) {
       setResumeErr(err instanceof Error ? err.message : "Ошибка применения");
     } finally {
@@ -324,9 +330,7 @@ export default function ProfilePage({ user }: Props) {
         setPrefs({
           ...emptyPrefs(),
           ...prefUpdated,
-          preferred_locations: prefUpdated.preferred_locations ?? [],
           work_formats: prefUpdated.work_formats ?? [],
-          target_roles: prefUpdated.target_roles ?? [],
         });
       }
       setSuccess(true);
@@ -373,13 +377,6 @@ export default function ProfilePage({ user }: Props) {
     } catch (e: any) { setError(e.message); }
   }
 
-  function parseLines(s: string): string[] {
-    return s
-      .split(/\r?\n/)
-      .map(x => x.trim())
-      .filter(Boolean);
-  }
-
   if (loading) return <Spinner />;
 
   const initials = (() => {
@@ -415,8 +412,8 @@ export default function ProfilePage({ user }: Props) {
 
       <SectionCard title="Импорт резюме с hh.ru (PDF)" icon="📄">
         <p style={{ color: "#64748B", fontSize: 14, marginTop: 0, marginBottom: 12 }}>
-          Загрузите PDF-версию резюме с hh.ru. Поля изменятся после нажатия «Сохранить профиль»
-          (включая блок «Предпочтения по вакансиям»).
+          Загрузите PDF-версию резюме с hh.ru. После применения проверьте поля и
+          выберите специализацию и отрасль вручную, затем нажмите «Сохранить профиль».
         </p>
         {resumeErr && <ErrorBanner message={resumeErr} />}
         {resumeHint && !resumeErr && (
@@ -462,8 +459,8 @@ export default function ProfilePage({ user }: Props) {
                     checked={resumeApply[key]}
                     onChange={e => setResumeApply(a => ({ ...a, [key]: e.target.checked }))}
                   />
-                  {key === "profile" && "Основные поля и цели"}
-                  {key === "prefs" && "Предпочтения по вакансиям (роли, локации, зарплата, формат)"}
+                  {key === "profile" && "Основные поля и город"}
+                  {key === "prefs" && "Предпочтения (формат, зарплата)"}
                   {key === "skills" && "Навыки (добавятся к уже указанным)"}
                   {key === "experience" && "Опыт работы (добавится к текущим записям)"}
                   {key === "education" && "Образование (добавится к текущим записям)"}
@@ -488,7 +485,7 @@ export default function ProfilePage({ user }: Props) {
               {importingDraft ? "Применяем…" : "Применить к профилю"}
             </button>
             <p style={{ fontSize: 12, color: "#94A3B8", marginTop: 10, marginBottom: 0 }}>
-              Это запишет выбранные данные на сервере. Затем при необходимости отредактируйте поля и нажмите «Сохранить профиль».
+              После применения выберите специализацию и желаемую отрасль вручную и нажмите «Сохранить профиль».
             </p>
           </div>
         )}
@@ -496,7 +493,7 @@ export default function ProfilePage({ user }: Props) {
 
       {success && (
         <div style={{ background: "#ECFDF5", color: "#059669", border: "1.5px solid #A7F3D0", borderRadius: 12, padding: "12px 18px", marginBottom: 20, fontSize: 14, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
-          ✓ Профиль и предпочтения по вакансиям сохранены
+          ✓ Профиль сохранён
         </div>
       )}
 
@@ -531,83 +528,58 @@ export default function ProfilePage({ user }: Props) {
               placeholder="Иванович"
             />
           </Field>
-          <Field label="Город / регион">
-            <input className="form-input" value={form.location ?? ""} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="Москва" />
-          </Field>
-          <Field label="О себе">
-            <textarea
-              className="form-input"
-              style={{ resize: "vertical", minHeight: 80 }}
-              rows={3}
-              value={form.bio ?? ""}
-              onChange={e => setForm(f => ({ ...f, bio: e.target.value }))}
-              placeholder="Кратко о вашем опыте и целях"
-            />
-          </Field>
         </SectionCard>
 
-        {/* Career goals */}
-        <SectionCard title="Карьерные цели" icon="🎯">
-          <Field label="Желаемая должность">
-            <input className="form-input" value={form.target_role ?? ""}
-              onChange={e => setForm(f => ({ ...f, target_role: e.target.value }))}
-              placeholder="например: Аналитик данных, Product Analyst" />
-          </Field>
-          <Field label="Заголовок профиля (для подбора вакансий)">
-            <input
-              className="form-input"
-              value={form.headline ?? ""}
-              onChange={e => setForm(f => ({ ...f, headline: e.target.value }))}
-              placeholder="например: Data Analyst · SQL · Python"
-            />
-          </Field>
-          <Field label="Краткое резюме (первые ~200 символов учитываются в рекомендациях)">
-            <textarea
-              className="form-input"
-              style={{ resize: "vertical", minHeight: 72 }}
-              rows={3}
-              value={form.summary ?? ""}
-              onChange={e => setForm(f => ({ ...f, summary: e.target.value }))}
-              placeholder="Опишите, какие задачи и роли вам интересны"
-            />
-          </Field>
-          <Field label="Желаемая отрасль">
-            <input className="form-input" value={form.target_industry ?? ""}
-              onChange={e => setForm(f => ({ ...f, target_industry: e.target.value }))}
-              placeholder="например: FinTech, GameDev, E-commerce" />
-          </Field>
-        </SectionCard>
-
-        <SectionCard title="Предпочтения по вакансиям" icon="📋">
+        {/* Объединённый блок: специализация, отрасль, город, формат, зарплата, уровень */}
+        <SectionCard title="Предпочтения" icon="🎯">
           {prefsLoading ? (
             <p style={{ color: "#64748B", margin: 0 }}>Загрузка…</p>
           ) : (
             <div>
               <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 14px" }}>
+                Эти поля используются рекомендательной системой при подборе вакансий.
                 Сохраняются вместе с остальным профилем кнопкой «Сохранить профиль» внизу страницы.
               </p>
-              <Field label="Целевые роли (по одной на строку)">
-                <textarea
+
+              <Field label="Специализация">
+                <select
                   className="form-input"
-                  style={{ resize: "vertical", minHeight: 72 }}
-                  value={prefs.target_roles.join("\n")}
-                  onChange={e =>
-                    setPrefs(p => ({ ...p, target_roles: parseLines(e.target.value) }))
-                  }
-                  placeholder={"Аналитик данных\nProduct Analyst"}
-                />
+                  value={form.specialization ?? ""}
+                  onChange={e => setForm(f => ({ ...f, specialization: e.target.value || null }))}
+                >
+                  <option value="">Не указано</option>
+                  {SPECIALIZATION_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </Field>
-              <Field label="Предпочитаемые локации (по одной на строке)">
-                <textarea
+
+              <Field label="Желаемая отрасль">
+                <select
                   className="form-input"
-                  style={{ resize: "vertical", minHeight: 56 }}
-                  value={prefs.preferred_locations.join("\n")}
-                  onChange={e =>
-                    setPrefs(p => ({ ...p, preferred_locations: parseLines(e.target.value) }))
-                  }
-                  placeholder="Москва\nRemote"
-                />
+                  value={form.target_industry ?? ""}
+                  onChange={e => setForm(f => ({ ...f, target_industry: e.target.value || null }))}
+                >
+                  <option value="">Не указано</option>
+                  {PROFESSION_AREAS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </Field>
+
+              <Field label="Город / регион">
+                <select
+                  className="form-input"
+                  value={form.location ?? ""}
+                  onChange={e => setForm(f => ({ ...f, location: e.target.value || null }))}
+                >
+                  <option value="">Не указано</option>
+                  {CITIES.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </Field>
+
               <Field label="Формат работы">
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                   {(["remote", "office", "hybrid"] as const).map(fmt => (
@@ -629,6 +601,7 @@ export default function ProfilePage({ user }: Props) {
                   ))}
                 </div>
               </Field>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 <Field label="Зарплата от (₽)">
                   <input
@@ -661,6 +634,7 @@ export default function ProfilePage({ user }: Props) {
                   />
                 </Field>
               </div>
+
               <Field label="Уровень">
                 <select
                   className="form-input"

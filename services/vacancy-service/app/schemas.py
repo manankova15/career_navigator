@@ -33,6 +33,8 @@ class CanonicalVacancyIn(BaseModel):
     salary_from: int | None = None
     salary_to: int | None = None
     salary_currency: str | None = "RUB"
+    salary_from_rub: int | None = None
+    salary_to_rub: int | None = None
     seniority: str | None = None
     employment_type: list[str] | None = None
     work_format: list[str] = Field(default_factory=list)
@@ -66,6 +68,8 @@ class CanonicalVacancyOut(BaseModel):
     salary_from: int | None
     salary_to: int | None
     salary_currency: str | None
+    salary_from_rub: int | None
+    salary_to_rub: int | None
     seniority: str | None
     employment_type: list[str] | None
     work_format: list[str]
@@ -92,7 +96,7 @@ class CanonicalVacancyOut(BaseModel):
 
 
 class VacancySearchParams(BaseModel):
-    """Параметры поиска по ТЗ (п. 7.2)."""
+    """Параметры поиска вакансий."""
 
     query: str | None = Field(None, description="Текст: title, company, description, skills")
     title: str | None = Field(None, description="Legacy: подстрока в title")
@@ -108,16 +112,13 @@ class VacancySearchParams(BaseModel):
     salary_from: int | None = None
     salary_currency: str | None = None
     has_salary: bool | None = None
-    skills: list[str] = Field(default_factory=list)
-    english_level: str | None = None
-    education_level: str | None = None
-    published_within: str | None = Field(
-        None,
-        description="1d | 3d | 7d | 30d",
-    )
     seniority: str | None = Field(None, description="Legacy: junior / middle / …")
     source_id: UUID | None = None
     status: str = "active"
+    sort: str = Field(
+        "relevance",
+        description="relevance | date | salary",
+    )
     page: int = Field(1, ge=1)
     page_size: int = Field(20, ge=1, le=100)
 

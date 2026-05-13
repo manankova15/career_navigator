@@ -1,6 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Vacancy, vacancySalaryCurrency } from "../../api/vacancies";
+import {
+  Vacancy,
+  currencyDisplaySymbol,
+  vacancySalaryCurrency,
+} from "../../api/vacancies";
 import { EXPERIENCE_LEVEL_LABEL } from "./vacanciesConstants";
 
 export interface VacancyCardProps {
@@ -22,9 +26,9 @@ function IconHeart({ filled }: { filled: boolean }) {
 export function salaryString(v: Vacancy): string | null {
   if (!v.salary_from && !v.salary_to) return null;
   const parts = [v.salary_from, v.salary_to].filter(Boolean).map(n => n!.toLocaleString("ru-RU"));
-  const c = vacancySalaryCurrency(v);
-  const sym = c === "RUB" ? "₽" : c;
-  return `${parts.join(" – ")} ${sym}`.trim();
+  const sym = currencyDisplaySymbol(vacancySalaryCurrency(v));
+  // Все суммы хранятся приведёнными к месяцу — отображаем с пометкой /мес.
+  return `${parts.join(" – ")} ${sym}/мес`.trim();
 }
 
 const SENIORITY_STYLES: Record<string, { bg: string; color: string }> = {

@@ -16,12 +16,12 @@ export interface Profile {
   first_name?: string | null;
   last_name?: string | null;
   patronymic?: string | null;
-  bio?: string | null;
+  /** Канонический код города (см. CITIES в vacanciesConstants). */
   location?: string | null;
-  target_role?: string | null;
+  /** Канонический код специализации (см. SPECIALIZATION_OPTIONS). */
+  specialization?: string | null;
+  /** Канонический код профессиональной области (см. PROFESSION_AREAS). */
   target_industry?: string | null;
-  headline?: string | null;
-  summary?: string | null;
 }
 
 export async function getProfile(): Promise<Profile> {
@@ -48,9 +48,7 @@ export async function removeProfileSkill(skillId: string): Promise<void> {
 }
 
 export interface ProfilePreferences {
-  preferred_locations: string[];
   work_formats: string[];
-  target_roles: string[];
   salary_from?: number | null;
   salary_to?: number | null;
   seniority?: string | null;

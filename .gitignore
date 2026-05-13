@@ -52,8 +52,7 @@ backups/
 *.onnx
 
 infra/docker/README.md
-docs/api-spec/README.md
-docs/architecture-diagram.puml
+docs/
 
 scripts/.tg_session.session
 *.session

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
-import { logout } from "../api/auth";
+import {
+  getIngestionSchedule,
+  updateIngestionSchedule,
+  type IngestionSchedule,
+} from "../api/ingestion";
+import AdminLayout from "../components/AdminLayout";
 
 type Stats = {
   total_users: number;
@@ -114,16 +119,18 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
   const [syncing, setSyncing] = useState<string | null>(null);
-  /** Пустая строка = лимит по умолчанию в worker (SYNC_DEFAULT_MAX_VACANCIES). */
   const [maxVacanciesInput, setMaxVacanciesInput] = useState("200");
-  const [testTitle, setTestTitle] = useState("Новый тест");
-  const [testTopic, setTestTopic] = useState("soft_skills");
-  const [testMsg, setTestMsg] = useState("");
   const [jobs, setJobs] = useState<Record<string, SyncJob>>({});
   const [, setTick] = useState(0);
   const jobsRef = useRef(jobs);
   jobsRef.current = jobs;
+
+  const [schedule, setSchedule] = useState<IngestionSchedule | null>(null);
+  const [fetchHoursInput, setFetchHoursInput] = useState("");
+  const [normalizeMinInput, setNormalizeMinInput] = useState("");
+  const [savingSchedule, setSavingSchedule] = useState(false);
 
   const load = useCallback(async () => {
     setErr("");
@@ -132,6 +139,14 @@ export default function DashboardPage() {
       setStats(s);
       const raw = await api.get<SourceRow[] | { items?: SourceRow[] }>("/admin/sources");
       setSources(Array.isArray(raw) ? raw : raw.items ?? []);
+      try {
+        const sch = await getIngestionSchedule();
+        setSchedule(sch);
+        setFetchHoursInput(String(sch.fetch_interval_hours));
+        setNormalizeMinInput(String(sch.normalize_interval_minutes));
+      } catch {
+        /* schedule endpoint optional */
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Ошибка загрузки");
     }
@@ -145,13 +160,11 @@ export default function DashboardPage() {
     void load();
   }, [load, navigate]);
 
-  // Периодически опрашиваем статус активных задач дозагрузки.
   useEffect(() => {
     const interval = setInterval(async () => {
       const current = jobsRef.current;
       const activeEntries = Object.entries(current).filter(([, j]) => !j.ready);
       if (activeEntries.length === 0) {
-        // пересчитать UI, чтобы таймеры бегущих задач освежились (даже если их уже нет)
         setTick((t) => t + 1);
         return;
       }
@@ -160,11 +173,11 @@ export default function DashboardPage() {
       await Promise.all(
         activeEntries.map(async ([sourceId, job]) => {
           try {
-            const status = await api.get<SyncJobStatus>(`/admin/sources/sync/jobs/${job.task_id}`);
+            const statusResp = await api.get<SyncJobStatus>(`/admin/sources/sync/jobs/${job.task_id}`);
             updated[sourceId] = {
               ...job,
-              ...status,
-              finished_at: status.ready ? Date.now() : job.finished_at,
+              ...statusResp,
+              finished_at: statusResp.ready ? Date.now() : job.finished_at,
             };
           } catch (e) {
             updated[sourceId] = {
@@ -217,7 +230,7 @@ export default function DashboardPage() {
         started_at: Date.now(),
       };
       setJobs((prev) => ({ ...prev, [sourceId]: newJob }));
-      setTestMsg(`Задача дозагрузки поставлена в очередь (task_id=${resp.task_id}).`);
+      setInfo(`Задача дозагрузки поставлена в очередь (task_id=${resp.task_id}).`);
       await load();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Ошибка sync");
@@ -226,184 +239,59 @@ export default function DashboardPage() {
     }
   }
 
-  async function createMinimalTest(e: React.FormEvent) {
+  async function saveSchedule(e: React.FormEvent) {
     e.preventDefault();
-    setTestMsg("");
     setErr("");
+    setInfo("");
+    setSavingSchedule(true);
     try {
-      await api.post("/assessments", {
-        title: testTitle,
-        description: "Создано из админ-панели",
-        topic: testTopic,
-        difficulty: "medium",
-        related_skills: [],
-        is_published: false,
-        items: [
-          {
-            position: 0,
-            prompt: "Пример: выберите верный вариант.",
-            mode: "quiz",
-            options: [
-              { id: "a", text: "Вариант А" },
-              { id: "b", text: "Вариант Б" },
-            ],
-            correct_option_ids: ["a"],
-            max_score: 1,
-            related_skills: [],
-          },
-        ],
+      const fh = Number.parseInt(fetchHoursInput, 10);
+      const nm = Number.parseInt(normalizeMinInput, 10);
+      if (Number.isNaN(fh) || fh < 1 || fh > 168) {
+        throw new Error("Частота дозагрузки: целое число часов от 1 до 168.");
+      }
+      if (Number.isNaN(nm) || nm < 5 || nm > 1440) {
+        throw new Error("Период нормализации: целое число минут от 5 до 1440.");
+      }
+      const result = await updateIngestionSchedule({
+        fetch_interval_hours: fh,
+        normalize_interval_minutes: nm,
       });
-      setTestMsg("Тест создан (черновик). Опубликуйте через PATCH или основной API.");
+      setSchedule(result);
+      setInfo("Расписание обновлено. Для применения требуется перезапуск celery-beat.");
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Ошибка создания теста");
+      setErr(e instanceof Error ? e.message : "Ошибка сохранения расписания");
+    } finally {
+      setSavingSchedule(false);
     }
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "system-ui, sans-serif" }}>
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "16px 24px",
-          background: "#0f172a",
-          color: "#f8fafc",
-        }}
-      >
-        <strong>Career Navigator — админ</strong>
-        <button
-          type="button"
-          onClick={() => {
-            logout();
-            navigate("/login");
-          }}
-          style={{
-            background: "#334155",
-            color: "#f8fafc",
-            border: "none",
-            padding: "8px 14px",
-            borderRadius: 8,
-            cursor: "pointer",
-          }}
-        >
-          Выйти
-        </button>
-      </header>
+    <AdminLayout>
+      {err ? <p style={{ color: "#b91c1c", marginBottom: 16 }}>{err}</p> : null}
+      {info ? <p style={{ color: "#15803d", marginBottom: 16 }}>{info}</p> : null}
 
-      <main style={{ maxWidth: 960, margin: "24px auto", padding: "0 16px" }}>
-        {err ? (
-          <p style={{ color: "#b91c1c", marginBottom: 16 }}>{err}</p>
-        ) : null}
-        {testMsg ? (
-          <p style={{ color: "#15803d", marginBottom: 16 }}>{testMsg}</p>
-        ) : null}
+      <section style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 18, marginBottom: 12 }}>Статистика</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
+          <StatCard label="Всего пользователей" value={stats?.total_users ?? "—"} />
+          <StatCard label="Завершённых прохождений тестов" value={stats?.completed_attempts ?? "—"} />
+          <StatCard
+            label="Пользователей с ≥1 завершённым тестом"
+            value={stats?.users_with_completed_attempts ?? "—"}
+          />
+        </div>
+      </section>
 
-        <section style={{ marginBottom: 32 }}>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Статистика</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
-            <StatCard label="Всего пользователей" value={stats?.total_users ?? "—"} />
-            <StatCard label="Завершённых прохождений тестов" value={stats?.completed_attempts ?? "—"} />
-            <StatCard
-              label="Пользователей с ≥1 завершённым тестом"
-              value={stats?.users_with_completed_attempts ?? "—"}
-            />
-          </div>
-        </section>
-
-        <section style={{ marginBottom: 32 }}>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Источники вакансий</h2>
-          <p style={{ fontSize: 14, color: "#64748b", marginBottom: 12 }}>
-            Дозагрузка: Celery <code>fetch_source</code>. Для <b>hh.ru</b> — новые записи в raw → normalize. Для{" "}
-            <b>telegram</b> — Telethon + тот же парсер, что в <code>scripts/seed_telegram_vacancies.py</code>, запись
-            напрямую в canonical (нужны <code>TELEGRAM_API_ID</code> / <code>TELEGRAM_API_HASH</code> и файл сессии в
-            volume <code>tg-ingest-session</code>).
-          </p>
-          <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, fontSize: 14 }}>
-            <span style={{ color: "#334155" }}>Макс. новых вакансий за запуск</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="пусто = по умолчанию (worker)"
-              value={maxVacanciesInput}
-              onChange={(e) => setMaxVacanciesInput(e.target.value)}
-              style={{ width: 120, padding: "6px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
-            />
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>1–5000</span>
-          </label>
-          <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #e2e8f0" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-              <thead>
-                <tr style={{ background: "#e2e8f0", textAlign: "left" }}>
-                  <th style={{ padding: 10 }}>Название</th>
-                  <th style={{ padding: 10 }}>Тип</th>
-                  <th style={{ padding: 10 }}>Вкл.</th>
-                  <th style={{ padding: 10 }}>Статус дозагрузки</th>
-                  <th style={{ padding: 10 }} />
-                </tr>
-              </thead>
-              <tbody>
-                {sources.map((s) => {
-                  const job = jobs[s.id];
-                  const info = job ? describeJob(job) : null;
-                  const active = Boolean(job && !job.ready);
-                  return (
-                    <tr key={s.id} style={{ borderTop: "1px solid #e2e8f0" }}>
-                      <td style={{ padding: 10 }}>{s.name}</td>
-                      <td style={{ padding: 10 }}>{s.source_type}</td>
-                      <td style={{ padding: 10 }}>{s.enabled ? "да" : "нет"}</td>
-                      <td style={{ padding: 10 }}>
-                        {info ? (
-                          <div>
-                            <div style={{ color: info.color, fontWeight: 600 }}>{info.label}</div>
-                            <div style={{ fontSize: 12, color: "#64748b" }}>{info.detail}</div>
-                            {job?.task_id ? (
-                              <div style={{ fontSize: 11, color: "#94a3b8", fontFamily: "monospace" }}>
-                                task_id: {job.task_id.slice(0, 8)}…
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span style={{ color: "#94a3b8" }}>—</span>
-                        )}
-                      </td>
-                      <td style={{ padding: 10 }}>
-                        <button
-                          type="button"
-                          disabled={!s.enabled || syncing === s.id || active}
-                          onClick={() => void triggerSync(s.id)}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: 6,
-                            border: "none",
-                            background: !s.enabled || active ? "#94a3b8" : "#2563eb",
-                            color: "#fff",
-                            cursor: !s.enabled || active ? "not-allowed" : "pointer",
-                          }}
-                        >
-                          {syncing === s.id ? "…" : active ? "Выполняется…" : "Дозагрузить"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Быстрое создание теста</h2>
-          <p style={{ fontSize: 14, color: "#64748b", marginBottom: 12 }}>
-            Создаётся черновик с одним вопросом-квизом; при необходимости дополните вопросы через API или
-            расширьте форму.
-          </p>
+      <section style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 18, marginBottom: 12 }}>Расписание автоматической дозагрузки</h2>
+        {schedule ? (
           <form
-            onSubmit={(e) => void createMinimalTest(e)}
+            onSubmit={(e) => void saveSchedule(e)}
             style={{
               display: "flex",
               flexWrap: "wrap",
-              gap: 12,
+              gap: 16,
               alignItems: "flex-end",
               padding: 16,
               background: "#fff",
@@ -412,38 +300,147 @@ export default function DashboardPage() {
             }}
           >
             <label style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
-              Название
+              Частота дозагрузки (часы)
               <input
-                value={testTitle}
-                onChange={(e) => setTestTitle(e.target.value)}
-                style={{ marginTop: 4, padding: 8, minWidth: 220 }}
+                type="number"
+                min={1}
+                max={168}
+                value={fetchHoursInput}
+                onChange={(e) => setFetchHoursInput(e.target.value)}
+                style={{ marginTop: 4, padding: 8, width: 120 }}
               />
             </label>
             <label style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
-              Тема (topic)
+              Период нормализации (минуты)
               <input
-                value={testTopic}
-                onChange={(e) => setTestTopic(e.target.value)}
-                style={{ marginTop: 4, padding: 8, minWidth: 160 }}
+                type="number"
+                min={5}
+                max={1440}
+                value={normalizeMinInput}
+                onChange={(e) => setNormalizeMinInput(e.target.value)}
+                style={{ marginTop: 4, padding: 8, width: 120 }}
               />
             </label>
             <button
               type="submit"
+              disabled={savingSchedule}
               style={{
                 padding: "10px 16px",
-                background: "#0f766e",
+                background: savingSchedule ? "#94a3b8" : "#0f766e",
                 color: "#fff",
                 border: "none",
                 borderRadius: 8,
-                cursor: "pointer",
+                cursor: savingSchedule ? "not-allowed" : "pointer",
               }}
             >
-              Создать черновик
+              {savingSchedule ? "Сохранение…" : "Сохранить"}
             </button>
+            <div style={{ flexBasis: "100%", fontSize: 12, color: "#64748b" }}>
+              Сейчас: каждые {schedule.fetch_interval_hours} ч — дозагрузка, каждые{" "}
+              {schedule.normalize_interval_minutes} мин — нормализация. Telegram-источники, у которых не настроена
+              сессия, пропускаются автоматически (статус «skipped») и не считаются ошибкой.
+            </div>
           </form>
-        </section>
-      </main>
-    </div>
+        ) : (
+          <p style={{ fontSize: 13, color: "#64748b" }}>Параметры расписания недоступны.</p>
+        )}
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 18, marginBottom: 12 }}>Источники вакансий</h2>
+        <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, fontSize: 14 }}>
+          <span style={{ color: "#334155" }}>Макс. новых вакансий за запуск</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="пусто = по умолчанию (worker)"
+            value={maxVacanciesInput}
+            onChange={(e) => setMaxVacanciesInput(e.target.value)}
+            style={{ width: 120, padding: "6px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+          />
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>1–5000</span>
+        </label>
+        <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, background: "#fff" }}>
+            <thead>
+              <tr style={{ background: "#e2e8f0", textAlign: "left" }}>
+                <th style={{ padding: 10 }}>Название</th>
+                <th style={{ padding: 10 }}>Тип</th>
+                <th style={{ padding: 10 }}>Вкл.</th>
+                <th style={{ padding: 10 }}>Статус дозагрузки</th>
+                <th style={{ padding: 10 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => {
+                const job = jobs[s.id];
+                const jinfo = job ? describeJob(job) : null;
+                const active = Boolean(job && !job.ready);
+                return (
+                  <tr key={s.id} style={{ borderTop: "1px solid #e2e8f0" }}>
+                    <td style={{ padding: 10 }}>{s.name}</td>
+                    <td style={{ padding: 10 }}>{s.source_type}</td>
+                    <td style={{ padding: 10 }}>{s.enabled ? "да" : "нет"}</td>
+                    <td style={{ padding: 10 }}>
+                      {jinfo ? (
+                        <div>
+                          <div style={{ color: jinfo.color, fontWeight: 600 }}>{jinfo.label}</div>
+                          <div style={{ fontSize: 12, color: "#64748b" }}>{jinfo.detail}</div>
+                        </div>
+                      ) : (
+                        <span style={{ color: "#94a3b8" }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: 10 }}>
+                      <button
+                        type="button"
+                        disabled={!s.enabled || syncing === s.id || active}
+                        onClick={() => void triggerSync(s.id)}
+                        style={{
+                          padding: "6px 12px",
+                          borderRadius: 6,
+                          border: "none",
+                          background: !s.enabled || active ? "#94a3b8" : "#2563eb",
+                          color: "#fff",
+                          cursor: !s.enabled || active ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {syncing === s.id ? "…" : active ? "Выполняется…" : "Дозагрузить"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p style={{ fontSize: 13, color: "#64748b", marginTop: 10 }}>
+          Полная история запусков (включая фоновые автоматические) доступна на странице{" "}
+          <Link to="/ingestion-runs">«История дозагрузок»</Link>.
+        </p>
+      </section>
+
+      <section>
+        <h2 style={{ fontSize: 18, marginBottom: 12 }}>Тесты</h2>
+        <p style={{ fontSize: 14, color: "#475569", marginBottom: 12 }}>
+          Создание, редактирование и публикация тестов вынесены на отдельную страницу.
+        </p>
+        <Link
+          to="/tests"
+          style={{
+            display: "inline-block",
+            padding: "10px 16px",
+            background: "#0f766e",
+            color: "#fff",
+            borderRadius: 8,
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          Перейти к управлению тестами →
+        </Link>
+      </section>
+    </AdminLayout>
   );
 }
 

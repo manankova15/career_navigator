@@ -14,8 +14,10 @@ export interface RecommendFeedPage {
   total: number;
 }
 
+// Запрашиваем сразу до 100 рекомендаций — пагинация на стороне фронта
+// (компоненты сами решают, сколько показать в featured strip / основной сетке).
 export async function getRecommendations(): Promise<Recommendation[]> {
-  const data = await api.get<RecommendFeedPage>("/recommendations/me?page_size=20");
+  const data = await api.get<RecommendFeedPage>("/recommendations/me?page_size=100");
   return data.items ?? [];
 }
 
@@ -55,7 +57,12 @@ export async function listMyLikes(): Promise<LikedVacancyDto[]> {
 
 export async function likeVacancyOnServer(
   vacancyId: string,
-  body: { vacancy_title?: string | null; vacancy_skills?: string[] } = {},
+  body: {
+    vacancy_title?: string | null;
+    vacancy_skills?: string[];
+    vacancy_category?: string | null;
+    vacancy_specialization?: string | null;
+  } = {},
 ): Promise<LikedVacancyDto> {
   return api.post<LikedVacancyDto>(`/recommendations/likes/${vacancyId}`, body);
 }

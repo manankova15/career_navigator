@@ -22,7 +22,7 @@ def _format_recommendations(data: dict) -> str:
         )
     lines = [
         f"⭐ <b>Ваши рекомендации</b> "
-        f"(алгоритм: {data.get('algorithm', 'content_ahp_v2')})\n"
+        f"(алгоритм: {data.get('algorithm', 'hybrid_ahp_v3')})\n"
     ]
     for i, r in enumerate(recs[:5], 1):
         score = r.get("score", 0)

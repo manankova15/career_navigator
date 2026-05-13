@@ -17,7 +17,7 @@ from ..database import get_db
 from ..models import VacancyRecommendation
 from ..orchestrator import run_recommendation, run_recommendation_from_db_profile
 
-CURRENT_ALGORITHM = "content_ahp_v2"
+CURRENT_ALGORITHM = "hybrid_ahp_v3"
 from ..personalization import build_affinity, score_with_personalization
 from ..schemas import (
     FeedbackIn,
@@ -49,6 +49,7 @@ def _rec_to_out(
     direct_signal: float | None = None,
 ) -> RecommendationOut:
     score = round(float(final_score), 4) if final_score is not None else float(rec.score)
+    features = rec.features or {}
     return RecommendationOut(
         id=rec.id,
         vacancy_id=rec.vacancy_id,
@@ -57,6 +58,8 @@ def _rec_to_out(
         personal_boost=round(float(personal_boost), 4),
         direct_signal=direct_signal,
         ml_score=rec.ml_score,
+        category_score=float(features.get("category_score", 0.5)),
+        specialization_score=float(features.get("specialization_score", 0.5)),
         skill_score=float(rec.skill_score or 0),
         role_score=float(rec.role_score or 0),
         location_score=float(rec.location_score or 0),
@@ -74,6 +77,12 @@ def _rec_to_out(
 def _live_rescore(
     db: Session, user_id: UUID, recs: list[VacancyRecommendation]
 ) -> list[tuple[VacancyRecommendation, float, float, float | None]]:
+    """Пересчитываем S(u, v) для всех рекомендаций активной сессии под
+    актуальный AffinityProfile (см. модель v3 §5).
+
+    Любой свежий лайк/кнопка пользователя тут же отражается на следующем
+    /recommendations/me, без обращения к ml-service.
+    """
     affinity = build_affinity(db, user_id)
     scored: list[tuple[VacancyRecommendation, float, float, float | None]] = []
     persist: dict[UUID, float] = {}
@@ -85,6 +94,8 @@ def _live_rescore(
             vacancy_id=rec.vacancy_id,
             vacancy_skills=list(features.get("vacancy_skills") or []),
             vacancy_title=features.get("vacancy_title") or "",
+            vacancy_category=features.get("vacancy_category"),
+            vacancy_specialization=features.get("vacancy_specialization"),
         )
         scored.append((rec, final, boost, direct))
         if abs(float(rec.score or 0) - final) > 1e-4:
@@ -98,7 +109,7 @@ def _live_rescore(
 @router.get("/me", response_model=RecommendFeedPage)
 async def get_my_recommendations(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=50),
+    page_size: int = Query(20, ge=1, le=200),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
@@ -114,12 +125,25 @@ async def get_my_recommendations(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No recommendations yet. Call POST /recommendations/refresh first.",
         )
+    # Treat a session with zero scored items as "no recommendations yet". This
+    # can happen if a previous scheduled refresh ran while ml-service or
+    # vacancy-service were unavailable and persisted an empty session. By
+    # returning 404 we let the frontend's refresh-on-404 path kick in and
+    # rebuild the session synchronously from the user's JWT.
+    if not session.recommendations or (session.total_scored or 0) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No recommendations yet. Call POST /recommendations/refresh first.",
+        )
     # If the latest stored session was produced by an earlier algorithm version,
     # silently regenerate it from the DB-cached profile so the user immediately
     # sees scores computed by the current AHP+personalization model without
     # having to press "Refresh".
     if session.algorithm != CURRENT_ALGORITHM:
-        refreshed = run_recommendation_from_db_profile(db, user_id)
+        try:
+            refreshed = run_recommendation_from_db_profile(db, user_id)
+        except HTTPException:
+            refreshed = None
         if refreshed is not None:
             session = refreshed
     rescored = _live_rescore(db, user_id, list(session.recommendations))
@@ -177,12 +201,16 @@ async def like_vacancy(
         vacancy_id,
         body.vacancy_title,
         body.vacancy_skills,
+        vacancy_category=body.vacancy_category,
+        vacancy_specialization=body.vacancy_specialization,
     )
     return LikedVacancyOut(
         id=row.id,
         vacancy_id=row.vacancy_id,
         vacancy_title=row.vacancy_title,
         vacancy_skills=list(row.vacancy_skills or []),
+        vacancy_category=row.vacancy_category,
+        vacancy_specialization=row.vacancy_specialization,
         liked_at=row.liked_at,
     )
 
@@ -209,6 +237,8 @@ async def list_my_likes(
             vacancy_id=r.vacancy_id,
             vacancy_title=r.vacancy_title,
             vacancy_skills=list(r.vacancy_skills or []),
+            vacancy_category=r.vacancy_category,
+            vacancy_specialization=r.vacancy_specialization,
             liked_at=r.liked_at,
         )
         for r in rows
@@ -237,6 +267,8 @@ async def register_interaction(
         source=body.source or "detail_page",
         vacancy_title=body.vacancy_title,
         vacancy_skills=body.vacancy_skills,
+        vacancy_category=body.vacancy_category,
+        vacancy_specialization=body.vacancy_specialization,
     )
     db.commit()
     return InteractionOut(

@@ -1,12 +1,9 @@
 import React from "react";
 import {
-  EDUCATION_LEVELS,
   EMPLOYMENT_TYPES,
-  ENGLISH_LEVELS,
   EXPERIENCE_LEVELS,
   PAGE_SIZE_OPTIONS,
   PROFESSION_AREAS,
-  PUBLISHED_WITHIN,
   SALARY_CURRENCIES,
   SCHEDULE_TYPES,
   SPECIALIZATION_OPTIONS,
@@ -44,10 +41,6 @@ export interface VacancySearchDraft {
   salary_from: string;
   salary_currency: string;
   has_salary: boolean;
-  skills: string;
-  english_level: string;
-  education_level: string;
-  published_within: string;
   pageSize: number;
 }
 
@@ -404,59 +397,51 @@ export default function VacanciesSearchPanel({
               </div>
             </div>
 
-            <div style={sectionTitle}>Требования</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 16, marginBottom: 20 }}>
-              <div>
-                <label style={labelStyle}>Навыки (через запятую, логика «или»)</label>
-                <input
-                  type="text"
-                  placeholder="Python, SQL, Excel…"
-                  value={draft.skills}
-                  onChange={e => setDraft(d => ({ ...d, skills: e.target.value }))}
-                  style={inputBase}
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Английский</label>
-                <select
-                  value={draft.english_level}
-                  onChange={e => setDraft(d => ({ ...d, english_level: e.target.value }))}
-                  style={{ ...inputBase, appearance: "none", background: "#fff" }}
+            <div
+              style={{
+                display: "flex",
+                gap: 16,
+                alignItems: "flex-end",
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+                marginTop: 4,
+              }}
+            >
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={onApplyFilters}
+                  style={{
+                    padding: "12px 22px",
+                    background: "#5B5CEB",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 16,
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    fontSize: 15,
+                  }}
                 >
-                  {ENGLISH_LEVELS.map(o => (
-                    <option key={o.value || "any"} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Образование</label>
-                <select
-                  value={draft.education_level}
-                  onChange={e => setDraft(d => ({ ...d, education_level: e.target.value }))}
-                  style={{ ...inputBase, appearance: "none", background: "#fff" }}
+                  Применить фильтры
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen(false)}
+                  style={{
+                    padding: "12px 22px",
+                    background: "#FFFFFF",
+                    color: "#0F172A",
+                    border: "1px solid #D8E0EE",
+                    borderRadius: 16,
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    fontSize: 15,
+                  }}
                 >
-                  {EDUCATION_LEVELS.map(o => (
-                    <option key={o.value || "any"} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
+                  Закрыть
+                </button>
               </div>
-            </div>
-
-            <div style={sectionTitle}>Дата публикации</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 16, marginBottom: 16 }}>
-              <div>
-                <label style={labelStyle}>Период</label>
-                <select
-                  value={draft.published_within}
-                  onChange={e => setDraft(d => ({ ...d, published_within: e.target.value }))}
-                  style={{ ...inputBase, appearance: "none", background: "#fff" }}
-                >
-                  {PUBLISHED_WITHIN.map(o => (
-                    <option key={o.value || "all"} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
+              <div style={{ minWidth: 220 }}>
                 <label style={labelStyle}>Показывать на странице</label>
                 <select
                   value={draft.pageSize}
@@ -468,41 +453,6 @@ export default function VacanciesSearchPanel({
                   ))}
                 </select>
               </div>
-            </div>
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                type="button"
-                onClick={onApplyFilters}
-                style={{
-                  padding: "12px 22px",
-                  background: "#5B5CEB",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 16,
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  fontSize: 15,
-                }}
-              >
-                Применить фильтры
-              </button>
-              <button
-                type="button"
-                onClick={() => setFiltersOpen(false)}
-                style={{
-                  padding: "12px 22px",
-                  background: "#FFFFFF",
-                  color: "#0F172A",
-                  border: "1px solid #D8E0EE",
-                  borderRadius: 16,
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  fontSize: 15,
-                }}
-              >
-                Закрыть
-              </button>
             </div>
           </div>
         )}

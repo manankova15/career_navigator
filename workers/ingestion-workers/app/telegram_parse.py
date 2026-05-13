@@ -2,36 +2,8 @@
 from __future__ import annotations
 
 import re
-# Паттерны для поиска зарплаты: "100 000 – 150 000 ₽", "от 80к", "up to $5000" и т.п.
-_SALARY_PATTERNS = [
-    # "100 000 – 200 000 ₽" / "100 000 - 200 000 руб"
-    re.compile(
-        r"(?P<from>\d[\d\s]{2,8}\d)\s*[-–—]\s*(?P<to>\d[\d\s]{2,8}\d)\s*"
-        r"(?P<currency>[₽$€]|руб(?:лей)?|rub|usd|eur)",
-        re.IGNORECASE,
-    ),
-    # "от 150 000 ₽" / "от 150к"
-    re.compile(
-        r"от\s+(?P<from>\d[\d\s]*\d?к?)\s*(?P<currency>[₽$€]|руб(?:лей)?|rub|usd|eur)?",
-        re.IGNORECASE,
-    ),
-    # "до 200 000 ₽"
-    re.compile(
-        r"до\s+(?P<to>\d[\d\s]*\d?к?)\s*(?P<currency>[₽$€]|руб(?:лей)?|rub|usd|eur)?",
-        re.IGNORECASE,
-    ),
-    # "150 000 ₽"  (одиночная сумма со знаком валюты)
-    re.compile(
-        r"(?P<from>\d[\d\s]{3,8})\s*(?P<currency>[₽$€])",
-        re.IGNORECASE,
-    ),
-]
 
-_CURRENCY_MAP = {
-    "₽": "RUB", "руб": "RUB", "рублей": "RUB", "rub": "RUB",
-    "$": "USD", "usd": "USD",
-    "€": "EUR", "eur": "EUR",
-}
+from .salary_parser import parse_salary as _parse_salary_full
 
 _SENIORITY_MAP = [
     ("intern",  ["стажёр", "стажер", "intern", "trainee"]),
@@ -78,40 +50,66 @@ _COMPANY_PATTERNS = [
 # Markdown link pattern: [text](url)
 _MD_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((https?://[^\)]+)\)", re.IGNORECASE)
 
+# Markdown emphasis patterns (Telegram uses __text__ for bold and *text* / _text_ for italic).
+_MD_EMPHASIS_PATTERNS = [
+    re.compile(r"\*\*(.+?)\*\*", re.DOTALL),
+    re.compile(r"__(.+?)__", re.DOTALL),
+    re.compile(r"~~(.+?)~~", re.DOTALL),
+]
+
+# Lead-in tokens we explicitly drop from the cleaned title (left over after
+# removing the surrounding underscores, e.g. "__tldr ... __").
+_TITLE_LEAD_TOKENS = ("tldr", "tl;dr", "tl dr")
+
 
 def _strip_markdown_links(text: str) -> str:
     """Replace [text](url) with just 'text'."""
     return _MD_LINK_PATTERN.sub(r"\1", text)
 
 
-def _clean_number(s: str) -> int | None:
-    """Убираем пробелы и 'к', переводим в число."""
-    if s is None:
-        return None
-    s = s.replace(" ", "").replace("\u00a0", "")
-    if s.endswith("к") or s.endswith("k"):
-        try:
-            return int(float(s[:-1]) * 1000)
-        except ValueError:
-            return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
+def _strip_markdown_emphasis(text: str) -> str:
+    """Strip Telegram Markdown emphasis markers (**bold**, __bold__, ~~strike~~)."""
+    out = text
+    for _ in range(2):
+        for pat in _MD_EMPHASIS_PATTERNS:
+            out = pat.sub(r"\1", out)
+    return out
 
 
-def parse_salary(text: str) -> tuple[int | None, int | None, str]:
-    for pat in _SALARY_PATTERNS:
-        m = pat.search(text)
-        if m:
-            gd = m.groupdict()
-            salary_from = _clean_number(gd.get("from"))
-            salary_to   = _clean_number(gd.get("to"))
-            raw_cur     = (gd.get("currency") or "").strip().lower()
-            currency    = _CURRENCY_MAP.get(raw_cur, "RUB")
-            if salary_from or salary_to:
-                return salary_from, salary_to, currency
-    return None, None, "RUB"
+def _clean_title(raw: str) -> str:
+    """Final clean-up for vacancy titles parsed from TG posts."""
+    s = _strip_markdown_emphasis(raw)
+    s = s.strip().strip("_*-—–·• \t")
+    low = s.lower()
+    for token in _TITLE_LEAD_TOKENS:
+        if low.startswith(token):
+            s = s[len(token):].lstrip(" :—-·•_*")
+            break
+    return s.strip()
+
+
+def parse_salary(text: str) -> tuple[
+    int | None, int | None, str, str | None, str, int | None, int | None
+]:
+    """
+    Парсит зарплату через salary_parser.parse_salary, возвращает кортеж:
+      (salary_from, salary_to, salary_currency, salary_gross_type,
+       salary_period, salary_from_rub, salary_to_rub)
+    Все суммы — в исходной валюте, приведённые к месяцу. Период всегда 'month'.
+    Если зарплата не распознана, возвращает None во всех числовых полях.
+    """
+    info = _parse_salary_full(text)
+    if info is None:
+        return None, None, "RUB", None, "month", None, None
+    return (
+        info.salary_from,
+        info.salary_to,
+        info.salary_currency,
+        info.salary_gross_type,
+        info.salary_period,
+        info.salary_from_rub,
+        info.salary_to_rub,
+    )
 
 
 def parse_seniority(text: str) -> str | None:
@@ -147,20 +145,26 @@ def parse_company(text: str) -> str | None:
         if m:
             company = m.group(1).strip()[:200]
             # Strip Markdown link format [Company Name](url) → Company Name
-            company = _strip_markdown_links(company).strip()
+            company = _strip_markdown_links(company)
+            # And drop emphasis markers like __Company__ → Company.
+            company = _strip_markdown_emphasis(company).strip().strip("_*")
             return company or None
     return None
 
 
 def extract_title(text: str) -> str:
     """Берём первую непустую строку как заголовок вакансии."""
-    for line in text.strip().splitlines():
+    # First strip Markdown emphasis on the entire text so __tldr ...__ becomes
+    # a plain line and the regex below doesn't preserve underscores.
+    cleaned_text = _strip_markdown_emphasis(text)
+    for line in cleaned_text.strip().splitlines():
         clean = re.sub(r"[^\w\s\-\+\./,()А-Яа-яёЁ]", "", line).strip()
+        clean = _clean_title(clean)
         if len(clean) > 5:
             return clean[:300]
     # Fallback: первые 80 символов первой строки
-    first_line = text.strip().splitlines()[0] if text.strip() else "Вакансия"
-    return first_line[:300]
+    first_line = cleaned_text.strip().splitlines()[0] if cleaned_text.strip() else "Вакансия"
+    return _clean_title(first_line)[:300] or "Вакансия"
 
 
 def is_vacancy_message(text: str) -> bool:
@@ -216,7 +220,15 @@ def parse_message(msg_id: int, text: str, date, channel: str, source_uuid: str) 
     title      = extract_title(text)
     company    = parse_company(text)
     location   = parse_location(text)
-    salary_from, salary_to, currency = parse_salary(text)
+    (
+        salary_from,
+        salary_to,
+        currency,
+        gross_type,
+        period,
+        salary_from_rub,
+        salary_to_rub,
+    ) = parse_salary(text)
     seniority  = parse_seniority(text)
     skills     = parse_skills(text)
     # Кнопка «Откликнуться на источнике» ведёт на пост в Telegram; ссылки из текста (hh.ru и т.д.) остаются в description.
@@ -225,19 +237,23 @@ def parse_message(msg_id: int, text: str, date, channel: str, source_uuid: str) 
     published_at = date.isoformat() if date else None
 
     return {
-        "source_id":       source_uuid,
-        "external_id":     f"tg_{channel}_{msg_id}",
-        "title":           title,
-        "company":         company or "Не указано",
-        "canonical_url":   canonical_url,
-        "location":        location,
-        "salary_from":     salary_from,
-        "salary_to":       salary_to,
-        "salary_currency": currency,
-        "seniority":       seniority,
-        "employment_type": None,
-        "description":     text[:4000],
-        "skills":          skills,
-        "status":          "active",
-        "published_at":    published_at,
+        "source_id":         source_uuid,
+        "external_id":       f"tg_{channel}_{msg_id}",
+        "title":             title,
+        "company":           company or "Не указано",
+        "canonical_url":     canonical_url,
+        "location":          location,
+        "salary_from":       salary_from,
+        "salary_to":         salary_to,
+        "salary_currency":   currency,
+        "salary_period":     period,
+        "salary_gross_type": gross_type,
+        "salary_from_rub":   salary_from_rub,
+        "salary_to_rub":     salary_to_rub,
+        "seniority":         seniority,
+        "employment_type":   None,
+        "description":       text[:4000],
+        "skills":            skills,
+        "status":            "active",
+        "published_at":      published_at,
     }

@@ -43,6 +43,8 @@ async def register_interaction(
     sentiment: str,
     vacancy_title: str | None = None,
     vacancy_skills: list[str] | None = None,
+    vacancy_category: str | None = None,
+    vacancy_specialization: str | None = None,
 ) -> dict | None:
     """POST /recommendations/interactions/{vacancy_id} — 'interested' / 'not interested'."""
     try:
@@ -54,6 +56,8 @@ async def register_interaction(
                 "source": "bot",
                 "vacancy_title": vacancy_title,
                 "vacancy_skills": vacancy_skills or [],
+                "vacancy_category": vacancy_category,
+                "vacancy_specialization": vacancy_specialization,
             },
         )
     except Exception:

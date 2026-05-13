@@ -13,10 +13,17 @@
 3. Запустите скрипт (сервисы должны работать в Docker):
        python scripts/seed_telegram_vacancies.py
 
-   При ПЕРВОМ запуске:
-     • Скрипт спросит ваш номер телефона (в формате +7XXXXXXXXXX).
-     • Telegram пришлёт код подтверждения в приложение Telegram.
-     • Введите код — сессия сохранится в файл .tg_session (повторная авторизация не нужна).
+   При ПЕРВОМ запуске Telethon спросит «phone (or bot token)» — введите только
+   **номер личного аккаунта** в формате +7XXXXXXXXXX. Токен бота из @BotFather
+   сюда вводить **нельзя**: бот не может читать историю каналов через этот API
+   (будет BotMethodInvalidError).
+
+     • Telegram пришлёт код в приложение Telegram (раздел входов / устройств).
+     • Введите код — сессия сохранится в файл scripts/.tg_session.session
+       (повторная авторизация не нужна). Если видите «too many values to unpack» —
+       удалите этот файл или запустите: python3 scripts/seed_telegram_vacancies.py --reset-session
+
+   Если вы уже случайно вошли как бот — снова: --reset-session и вход по телефону.
 
 ─── Что делает скрипт ───────────────────────────────────────────────────────
 
@@ -31,14 +38,19 @@
 
   TELEGRAM_CHANNEL   — один канал (если не задан файл каналов)
   TELEGRAM_CHANNELS — путь к файлу со списком каналов (по умолчанию telegram_channels.txt в этой папке)
-  TARGET_COUNT      — сколько вакансий собрать всего со всех каналов
+  TELEGRAM_SESSION  — путь к файлу сессии без суффикса .session (по умолчанию scripts/.tg_session)
+  TELEGRAM_TARGET_COUNT — сколько вакансий собрать всего со всех каналов
   VACANCY_SERVICE_URL — URL вашего vacancy-service
+
+  Флаги:
+  --reset-session   — удалить локальные файлы сессии Telethon перед запуском (новый вход в Telegram)
 """
 
 import asyncio
 import json
 import os
 import re
+import sys
 import time
 import uuid
 import base64
@@ -46,6 +58,20 @@ import hashlib
 import hmac
 
 import requests
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from backfill_classification import (  # noqa: E402
+    classify_profession_area,
+    classify_specialization,
+    infer_education_level,
+    infer_employment_type,
+    infer_english_level,
+    infer_experience_level,
+    infer_schedule_type,
+    infer_work_format,
+    split_location,
+)
+from salary_parser import parse_salary as _parse_salary_full  # noqa: E402
 
 # ── Параметры ─────────────────────────────────────────────────────────────────
 
@@ -65,8 +91,35 @@ REQUEST_DELAY = 1.5
 
 VACANCY_SERVICE_URL = os.getenv("VACANCY_SERVICE_URL", "http://localhost:8004")
 
-# Файл сессии сохраняется рядом со скриптом
-SESSION_FILE = os.path.join(SCRIPT_DIR, ".tg_session")
+# Имя сессии по умолчанию (Telethon добавит суффикс `.session` к пути).
+# После загрузки .env в main() можно переопределить через TELEGRAM_SESSION.
+_DEFAULT_TG_SESSION = os.path.join(SCRIPT_DIR, ".tg_session")
+
+
+def _session_base() -> str:
+    """Базовый путь сессии (как первый аргумент TelegramClient). .env уже должен быть загружен."""
+    return os.getenv("TELEGRAM_SESSION", _DEFAULT_TG_SESSION)
+
+
+def _telethon_sqlite_path(session_base: str | None = None) -> str:
+    """Путь к файлу БД сессии Telethon (…/name.session)."""
+    base = session_base if session_base is not None else _session_base()
+    return base if base.endswith(".session") else base + ".session"
+
+
+def _remove_corrupt_session_files(session_base: str | None = None) -> list[str]:
+    """Удаляет файлы сессии Telethon (основной + journal/wal/shm). Возвращает список удалённых."""
+    base = _telethon_sqlite_path(session_base)
+    removed: list[str] = []
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        path = base + suffix if suffix else base
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+                removed.append(path)
+        except OSError:
+            pass
+    return removed
 
 
 def load_telegram_channels() -> list[str]:
@@ -118,37 +171,6 @@ INTERNAL_HEADERS = {
 
 # ── Парсинг сообщений ─────────────────────────────────────────────────────────
 
-# Паттерны для поиска зарплаты: "100 000 – 150 000 ₽", "от 80к", "up to $5000" и т.п.
-_SALARY_PATTERNS = [
-    # "100 000 – 200 000 ₽" / "100 000 - 200 000 руб"
-    re.compile(
-        r"(?P<from>\d[\d\s]{2,8}\d)\s*[-–—]\s*(?P<to>\d[\d\s]{2,8}\d)\s*"
-        r"(?P<currency>[₽$€]|руб(?:лей)?|rub|usd|eur)",
-        re.IGNORECASE,
-    ),
-    # "от 150 000 ₽" / "от 150к"
-    re.compile(
-        r"от\s+(?P<from>\d[\d\s]*\d?к?)\s*(?P<currency>[₽$€]|руб(?:лей)?|rub|usd|eur)?",
-        re.IGNORECASE,
-    ),
-    # "до 200 000 ₽"
-    re.compile(
-        r"до\s+(?P<to>\d[\d\s]*\d?к?)\s*(?P<currency>[₽$€]|руб(?:лей)?|rub|usd|eur)?",
-        re.IGNORECASE,
-    ),
-    # "150 000 ₽"  (одиночная сумма со знаком валюты)
-    re.compile(
-        r"(?P<from>\d[\d\s]{3,8})\s*(?P<currency>[₽$€])",
-        re.IGNORECASE,
-    ),
-]
-
-_CURRENCY_MAP = {
-    "₽": "RUB", "руб": "RUB", "рублей": "RUB", "rub": "RUB",
-    "$": "USD", "usd": "USD",
-    "€": "EUR", "eur": "EUR",
-}
-
 _SENIORITY_MAP = [
     ("intern",  ["стажёр", "стажер", "intern", "trainee"]),
     ("junior",  ["junior", "джун", "джуниор", "начинающий"]),
@@ -194,40 +216,64 @@ _COMPANY_PATTERNS = [
 # Markdown link pattern: [text](url)
 _MD_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((https?://[^\)]+)\)", re.IGNORECASE)
 
+# Markdown emphasis patterns (Telegram uses __text__ for bold, *text* for italic).
+_MD_EMPHASIS_PATTERNS = [
+    re.compile(r"\*\*(.+?)\*\*", re.DOTALL),
+    re.compile(r"__(.+?)__", re.DOTALL),
+    re.compile(r"~~(.+?)~~", re.DOTALL),
+]
+
+# Lead-in tokens we explicitly drop from the cleaned title (e.g. "__tldr ... __" → "").
+_TITLE_LEAD_TOKENS = ("tldr", "tl;dr", "tl dr")
+
 
 def _strip_markdown_links(text: str) -> str:
     """Replace [text](url) with just 'text'."""
     return _MD_LINK_PATTERN.sub(r"\1", text)
 
 
-def _clean_number(s: str) -> int | None:
-    """Убираем пробелы и 'к', переводим в число."""
-    if s is None:
-        return None
-    s = s.replace(" ", "").replace("\u00a0", "")
-    if s.endswith("к") or s.endswith("k"):
-        try:
-            return int(float(s[:-1]) * 1000)
-        except ValueError:
-            return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
+def _strip_markdown_emphasis(text: str) -> str:
+    """Strip Telegram Markdown emphasis markers (**bold**, __bold__, ~~strike~~)."""
+    out = text
+    for _ in range(2):
+        for pat in _MD_EMPHASIS_PATTERNS:
+            out = pat.sub(r"\1", out)
+    return out
 
 
-def parse_salary(text: str) -> tuple[int | None, int | None, str]:
-    for pat in _SALARY_PATTERNS:
-        m = pat.search(text)
-        if m:
-            gd = m.groupdict()
-            salary_from = _clean_number(gd.get("from"))
-            salary_to   = _clean_number(gd.get("to"))
-            raw_cur     = (gd.get("currency") or "").strip().lower()
-            currency    = _CURRENCY_MAP.get(raw_cur, "RUB")
-            if salary_from or salary_to:
-                return salary_from, salary_to, currency
-    return None, None, "RUB"
+def _clean_title(raw: str) -> str:
+    """Final clean-up for vacancy titles parsed from TG posts."""
+    s = _strip_markdown_emphasis(raw)
+    s = s.strip().strip("_*-—–·• \t")
+    low = s.lower()
+    for token in _TITLE_LEAD_TOKENS:
+        if low.startswith(token):
+            s = s[len(token):].lstrip(" :—-·•_*")
+            break
+    return s.strip()
+
+
+def parse_salary(text: str) -> tuple[
+    int | None, int | None, str, str | None, str, int | None, int | None
+]:
+    """
+    Извлекает зарплату через salary_parser.parse_salary. Возвращает кортеж:
+      (salary_from, salary_to, salary_currency, salary_gross_type,
+       salary_period, salary_from_rub, salary_to_rub)
+    Все суммы — в исходной валюте, приведённые к месяцу.
+    """
+    info = _parse_salary_full(text)
+    if info is None:
+        return None, None, "RUB", None, "month", None, None
+    return (
+        info.salary_from,
+        info.salary_to,
+        info.salary_currency,
+        info.salary_gross_type,
+        info.salary_period,
+        info.salary_from_rub,
+        info.salary_to_rub,
+    )
 
 
 def parse_seniority(text: str) -> str | None:
@@ -263,20 +309,24 @@ def parse_company(text: str) -> str | None:
         if m:
             company = m.group(1).strip()[:200]
             # Strip Markdown link format [Company Name](url) → Company Name
-            company = _strip_markdown_links(company).strip()
+            company = _strip_markdown_links(company)
+            # And drop emphasis markers like __Company__ → Company.
+            company = _strip_markdown_emphasis(company).strip().strip("_*")
             return company or None
     return None
 
 
 def extract_title(text: str) -> str:
     """Берём первую непустую строку как заголовок вакансии."""
-    for line in text.strip().splitlines():
+    cleaned_text = _strip_markdown_emphasis(text)
+    for line in cleaned_text.strip().splitlines():
         clean = re.sub(r"[^\w\s\-\+\./,()А-Яа-яёЁ]", "", line).strip()
+        clean = _clean_title(clean)
         if len(clean) > 5:
             return clean[:300]
     # Fallback: первые 80 символов первой строки
-    first_line = text.strip().splitlines()[0] if text.strip() else "Вакансия"
-    return first_line[:300]
+    first_line = cleaned_text.strip().splitlines()[0] if cleaned_text.strip() else "Вакансия"
+    return _clean_title(first_line)[:300] or "Вакансия"
 
 
 def is_vacancy_message(text: str) -> bool:
@@ -332,7 +382,15 @@ def parse_message(msg_id: int, text: str, date, channel: str) -> dict | None:
     title      = extract_title(text)
     company    = parse_company(text)
     location   = parse_location(text)
-    salary_from, salary_to, currency = parse_salary(text)
+    (
+        salary_from,
+        salary_to,
+        currency,
+        gross_type,
+        period,
+        salary_from_rub,
+        salary_to_rub,
+    ) = parse_salary(text)
     seniority  = parse_seniority(text)
     skills     = parse_skills(text)
     # Кнопка «Откликнуться на источнике» ведёт на пост в Telegram; ссылки из текста (hh.ru и т.д.) остаются в description.
@@ -341,22 +399,38 @@ def parse_message(msg_id: int, text: str, date, channel: str) -> dict | None:
 
     published_at = date.isoformat() if date else None
 
+    blob = " ".join(p for p in [title, company or "", text, location or "", " ".join(skills)] if p)
+    city_guess, country_guess = split_location(location)
+
     return {
-        "source_id":       source_id,
-        "external_id":     f"tg_{channel}_{msg_id}",
-        "title":           title,
-        "company":         company or "Не указано",
-        "canonical_url":   canonical_url,
-        "location":        location,
-        "salary_from":     salary_from,
-        "salary_to":       salary_to,
-        "salary_currency": currency,
-        "seniority":       seniority,
-        "employment_type": None,
-        "description":     text[:4000],
-        "skills":          skills,
-        "status":          "active",
-        "published_at":    published_at,
+        "source_id":         source_id,
+        "external_id":       f"tg_{channel}_{msg_id}",
+        "title":             title,
+        "company":           company or "Не указано",
+        "canonical_url":     canonical_url,
+        "location":          location,
+        "location_city":     city_guess,
+        "location_country":  country_guess,
+        "salary_from":       salary_from,
+        "salary_to":         salary_to,
+        "salary_currency":   currency,
+        "salary_period":     period,
+        "salary_gross_type": gross_type,
+        "salary_from_rub":   salary_from_rub,
+        "salary_to_rub":     salary_to_rub,
+        "seniority":         seniority,
+        "employment_type":   infer_employment_type(blob),
+        "work_format":       infer_work_format(blob),
+        "schedule_type":     infer_schedule_type(blob),
+        "experience_level":  infer_experience_level(blob, seniority),
+        "profession_area":   classify_profession_area(blob, title),
+        "specialization":    classify_specialization(blob, title),
+        "english_level":     infer_english_level(blob),
+        "education_level":   infer_education_level(blob),
+        "description":       text[:4000],
+        "skills":            skills,
+        "status":            "active",
+        "published_at":      published_at,
     }
 
 
@@ -407,15 +481,51 @@ async def collect_vacancies():
         )
         return
 
-    print(f"[tg-seed] Подключаюсь к Telegram (api_id={api_id})…")
-    print(f"[tg-seed] Файл сессии: {SESSION_FILE}")
+    session_base = _session_base()
+    sqlite_path = _telethon_sqlite_path(session_base)
 
-    client = TelegramClient(SESSION_FILE, int(api_id), api_hash)
+    print(f"[tg-seed] Подключаюсь к Telegram (api_id={api_id})…")
+    print(f"[tg-seed] Файл сессии (SQLite): {sqlite_path}")
+
+    try:
+        client = TelegramClient(session_base, int(api_id), api_hash)
+    except ValueError as e:
+        err = str(e).lower()
+        if "unpack" in err or "expected" in err:
+            print(
+                "\n[tg-seed] Не удалось прочитать файл сессии Telethon — он повреждён, "
+                "не от Telethon или создан очень старой версией библиотеки.\n"
+                f"   Файл: {sqlite_path}\n\n"
+                "   Удалите его и запустите скрипт снова (Telegram снова запросит код из приложения):\n"
+                f"     rm -f {sqlite_path!r} {sqlite_path + '-journal'!r} "
+                f"{sqlite_path + '-wal'!r} {sqlite_path + '-shm'!r}\n\n"
+                "   Или одной командой:\n"
+                "     python3 scripts/seed_telegram_vacancies.py --reset-session\n"
+            )
+            return
+        raise
 
     await client.start()          # При первом запуске запросит телефон и код из Telegram
 
+    me = await client.get_me()
+    if getattr(me, "bot", False):
+        print(
+            "\n❌ [tg-seed] Сейчас активна сессия **бота** (вы ввели токен из @BotFather).\n"
+            "   Чтение истории публичных каналов через Telethon делается методом, который\n"
+            "   для ботов Telegram **запрещает** — отсюда BotMethodInvalidError на get_messages.\n\n"
+            "   Нужен **личный аккаунт** (ваш номер телефона + SMS-код в приложении Telegram).\n"
+            "   Токен TELEGRAM_BOT_TOKEN из .env для этого скрипта не подходит.\n\n"
+            "   Дальнейшие шаги:\n"
+            "     1) python3 scripts/seed_telegram_vacancies.py --reset-session\n"
+            "     2) На запрос phone введите +7XXXXXXXXXX (не токен бота).\n"
+            "     3) Введите код из приложения Telegram.\n"
+        )
+        await client.disconnect()
+        return
+
     channels = load_telegram_channels()
-    print(f"[tg-seed] Авторизован как: {(await client.get_me()).username or 'user'}")
+    who = me.username or me.first_name or "user"
+    print(f"[tg-seed] Авторизован как: @{who}" if me.username else f"[tg-seed] Авторизован как: {who}")
     print(f"[tg-seed] Каналы: {', '.join('@' + c for c in channels)}")
     print(f"[tg-seed] Цель: {TARGET_COUNT} вакансий всего.\n")
 
@@ -486,6 +596,15 @@ def main():
                 if line and not line.startswith("#") and "=" in line:
                     key, _, val = line.partition("=")
                     os.environ.setdefault(key.strip(), val.strip())
+
+    if "--reset-session" in sys.argv:
+        removed = _remove_corrupt_session_files()
+        if removed:
+            print(f"[tg-seed] Удалены файлы сессии ({len(removed)} шт.):")
+            for p in removed:
+                print(f"   • {p}")
+        else:
+            print("[tg-seed] Файлов сессии Telethon не найдено (сбрасывать нечего).")
 
     asyncio.run(collect_vacancies())
 

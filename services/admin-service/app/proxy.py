@@ -143,3 +143,103 @@ async def get_assessment_admin_stats(authorization: str) -> dict:
         f"{settings.assessment_service_url}/assessments/admin/stats",
         authorization,
     )
+
+
+# ── Ingestion runs / schedule ────────────────────────────────────────────────
+
+
+async def get_ingestion_runs(
+    authorization: str,
+    page: int = 1,
+    page_size: int = 20,
+    source_id: str | None = None,
+    status_filter: str | None = None,
+) -> dict:
+    params: dict = {"page": page, "page_size": page_size}
+    if source_id:
+        params["source_id"] = source_id
+    if status_filter:
+        params["status"] = status_filter
+    return await proxy_get(
+        f"{settings.source_service_url}/ingestion/runs",
+        authorization,
+        params=params,
+    )
+
+
+async def delete_ingestion_run(authorization: str, run_id: str) -> int:
+    return await proxy_delete(
+        f"{settings.source_service_url}/ingestion/runs/{run_id}",
+        authorization,
+    )
+
+
+async def get_ingestion_schedule(authorization: str) -> dict:
+    return await proxy_get(
+        f"{settings.source_service_url}/ingestion/schedule",
+        authorization,
+    )
+
+
+async def update_ingestion_schedule(authorization: str, body: dict) -> dict:
+    return await proxy_patch(
+        f"{settings.source_service_url}/ingestion/schedule",
+        authorization,
+        body=body,
+    )
+
+
+# ── Assessments (full CRUD) ──────────────────────────────────────────────────
+
+
+async def create_assessment(authorization: str, body: dict) -> dict:
+    return await proxy_post(
+        f"{settings.assessment_service_url}/assessments",
+        authorization,
+        body=body,
+    )
+
+
+async def update_assessment(authorization: str, assessment_id: str, body: dict) -> dict:
+    return await proxy_patch(
+        f"{settings.assessment_service_url}/assessments/{assessment_id}",
+        authorization,
+        body=body,
+    )
+
+
+async def delete_assessment(authorization: str, assessment_id: str) -> int:
+    return await proxy_delete(
+        f"{settings.assessment_service_url}/assessments/{assessment_id}",
+        authorization,
+    )
+
+
+async def get_assessment_admin(authorization: str, assessment_id: str) -> dict:
+    return await proxy_get(
+        f"{settings.assessment_service_url}/assessments/{assessment_id}/admin",
+        authorization,
+    )
+
+
+async def add_assessment_item(authorization: str, assessment_id: str, body: dict) -> dict:
+    return await proxy_post(
+        f"{settings.assessment_service_url}/assessments/{assessment_id}/items",
+        authorization,
+        body=body,
+    )
+
+
+async def update_assessment_item(authorization: str, item_id: str, body: dict) -> dict:
+    return await proxy_patch(
+        f"{settings.assessment_service_url}/assessments/items/{item_id}",
+        authorization,
+        body=body,
+    )
+
+
+async def delete_assessment_item(authorization: str, item_id: str) -> int:
+    return await proxy_delete(
+        f"{settings.assessment_service_url}/assessments/items/{item_id}",
+        authorization,
+    )

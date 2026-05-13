@@ -24,6 +24,10 @@ def run_deduplication(self):
     """
     threshold = settings.dedup_similarity_threshold
 
+    # Дедуп идёт по всем активным вакансиям (в т.ч. между разными source_id —
+    # например, одна и та же вакансия запостена в нескольких Telegram-каналах
+    # и параллельно встречается на hh.ru). Первичной считаем более старую
+    # запись (по created_at), дубликат архивируем.
     find_duplicates_sql = text("""
         SELECT a.id AS primary_id,
                b.id AS duplicate_id,
@@ -31,12 +35,11 @@ def run_deduplication(self):
         FROM canonical_vacancies a
         JOIN canonical_vacancies b
           ON a.id <> b.id
-         AND a.source_id = b.source_id
          AND a.created_at <= b.created_at
          AND b.status = 'active'
          AND similarity(a.title || ' ' || a.company, b.title || ' ' || b.company) >= :threshold
         WHERE a.status = 'active'
-        LIMIT 500
+        LIMIT 2000
     """)
 
     with get_db_ctx() as db:

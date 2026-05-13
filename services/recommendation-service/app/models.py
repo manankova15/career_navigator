@@ -14,7 +14,7 @@ class RecommendationSession(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    algorithm = Column(String(50), nullable=False, server_default="content_ahp_v2")
+    algorithm = Column(String(50), nullable=False, server_default="hybrid_ahp_v3")
     total_scored = Column(Integer, nullable=False, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -109,6 +109,11 @@ class UserLikedVacancy(Base):
     unliked_at = Column(DateTime, nullable=True)
     vacancy_title = Column(String(300), nullable=True)
     vacancy_skills = Column(JSONB, nullable=True, server_default="[]")
+    # Снапшот канонической категории/специализации вакансии (см. модель v3,
+    # §4.1). Используется поведенческим скором B(u,v) для аккумулирования
+    # предпочтений по этим осям без обращения в vacancy-service.
+    vacancy_category = Column(String(80), nullable=True)
+    vacancy_specialization = Column(String(120), nullable=True)
 
     __table_args__ = (UniqueConstraint("user_id", "vacancy_id", name="uq_user_liked_vacancy"),)
 
@@ -129,6 +134,8 @@ class UserVacancySignal(Base):
     source = Column(String(32), nullable=True)
     vacancy_title = Column(String(300), nullable=True)
     vacancy_skills = Column(JSONB, nullable=True, server_default="[]")
+    vacancy_category = Column(String(80), nullable=True)
+    vacancy_specialization = Column(String(120), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime,

@@ -35,6 +35,19 @@ class AssessmentItemCreate(BaseModel):
     explanation: str | None = None
 
 
+class AssessmentItemUpdate(BaseModel):
+    position: int | None = None
+    prompt: str | None = None
+    mode: AssessmentMode | None = None
+    options: list[OptionSchema] | None = None
+    correct_option_ids: list[str] | None = None
+    expected_keywords: list[str] | None = None
+    rubric_checklist: list[RubricCriterion] | None = None
+    max_score: float | None = Field(default=None, gt=0)
+    related_skills: list[str] | None = None
+    explanation: str | None = None
+
+
 class AssessmentItemOut(BaseModel):
     id: UUID
     assessment_id: UUID

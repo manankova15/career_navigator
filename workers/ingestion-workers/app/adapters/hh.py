@@ -79,20 +79,32 @@ def fetch_vacancies(
     per_page: int = 100,
     max_pages: int = 5,
 ) -> list[dict[str, Any]]:
-    """Fetch vacancy list pages from hh.ru."""
-    results = []
+    """Fetch vacancy list pages from hh.ru.
+
+    Hh.ru ограничивает per_page <= 100 и иногда возвращает 400 для слишком
+    «жадных» запросов или сочетаний параметров (например, only_with_salary
+    как строка False). Поэтому шлём только необходимые поля.
+    """
+    # Защитимся от случайно подсунутого per_page > 100.
+    safe_per_page = min(max(1, int(per_page)), 100)
+    results: list[dict[str, Any]] = []
     for page in range(max_pages):
-        logger.info("hh.ru fetch page=%d query=%r area=%d", page, query, area_id)
-        data = _get(
-            "/vacancies",
-            params={
-                "text": query,
-                "area": area_id,
-                "per_page": per_page,
-                "page": page,
-                "only_with_salary": False,
-            },
+        logger.info(
+            "hh.ru fetch page=%d query=%r area=%s per_page=%d",
+            page,
+            query,
+            area_id,
+            safe_per_page,
         )
+        params: dict[str, Any] = {
+            "text": query,
+            "per_page": safe_per_page,
+            "page": page,
+        }
+        # area опциональна: без неё API ищет по всем регионам, что тоже валидно.
+        if area_id is not None:
+            params["area"] = int(area_id)
+        data = _get("/vacancies", params=params)
         items = data.get("items", [])
         results.extend(items)
         if page >= data.get("pages", 1) - 1:

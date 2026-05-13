@@ -24,7 +24,13 @@ from .models import (
     AssessmentFeedback,
     AssessmentItem,
 )
-from .schemas import AssessmentCreate, AssessmentItemCreate, AssessmentUpdate, AnswerIn
+from .schemas import (
+    AnswerIn,
+    AssessmentCreate,
+    AssessmentItemCreate,
+    AssessmentItemUpdate,
+    AssessmentUpdate,
+)
 
 
 # ── Assessments ───────────────────────────────────────────────────────────────
@@ -85,6 +91,39 @@ def add_item_to_assessment(
     db.commit()
     db.refresh(item)
     return item
+
+
+def get_item(db: Session, item_id: UUID) -> AssessmentItem | None:
+    return db.query(AssessmentItem).filter(AssessmentItem.id == item_id).first()
+
+
+def update_item(
+    db: Session, item_id: UUID, payload: AssessmentItemUpdate
+) -> AssessmentItem | None:
+    item = get_item(db, item_id)
+    if item is None:
+        return None
+    data = payload.model_dump(exclude_none=True)
+    if "options" in data:
+        item.options = [o if isinstance(o, dict) else o.model_dump() for o in data.pop("options")]
+    if "rubric_checklist" in data:
+        item.rubric_checklist = [
+            r if isinstance(r, dict) else r.model_dump() for r in data.pop("rubric_checklist")
+        ]
+    for field, value in data.items():
+        setattr(item, field, value)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def delete_item(db: Session, item_id: UUID) -> bool:
+    item = get_item(db, item_id)
+    if item is None:
+        return False
+    db.delete(item)
+    db.commit()
+    return True
 
 
 def get_assessment(db: Session, assessment_id: UUID) -> Assessment | None:

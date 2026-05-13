@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getVacancies, VacanciesPage as VPage } from "../api/vacancies";
+import { getVacancies, VacanciesPage as VPage, VacancySortMode } from "../api/vacancies";
 import Spinner from "../components/Spinner";
 import ErrorBanner from "../components/ErrorBanner";
 import VacanciesIntroHero from "../components/vacancies/VacanciesIntroHero";
@@ -9,12 +9,18 @@ import VacanciesToolbar from "../components/vacancies/VacanciesToolbar";
 import FeaturedVacancyCard from "../components/vacancies/FeaturedVacancyCard";
 import VacancyCard from "../components/vacancies/VacancyCard";
 import VacanciesEmptyState from "../components/vacancies/VacanciesEmptyState";
-import { PAGE_SIZE_OPTIONS } from "../components/vacancies/vacanciesConstants";
+import { PAGE_SIZE_OPTIONS, DEFAULT_PAGE_SIZE } from "../components/vacancies/vacanciesConstants";
 import { useLikedVacancies } from "../hooks/useLikedVacancies";
 
 function splitCsv(s: string | null): string[] {
   if (!s) return [];
   return s.split(",").map(x => x.trim()).filter(Boolean);
+}
+
+const SORT_VALUES: VacancySortMode[] = ["relevance", "date", "salary"];
+
+function parseSort(raw: string | null): VacancySortMode {
+  return SORT_VALUES.includes(raw as VacancySortMode) ? (raw as VacancySortMode) : "relevance";
 }
 
 export type VacanciesUrlState = {
@@ -30,10 +36,7 @@ export type VacanciesUrlState = {
   salary_from: string;
   salary_currency: string;
   has_salary: boolean;
-  skills: string;
-  english_level: string;
-  education_level: string;
-  published_within: string;
+  sort: VacancySortMode;
   page: number;
   pageSize: number;
 };
@@ -47,7 +50,7 @@ function parseSearchParams(searchParams: URLSearchParams): VacanciesUrlState {
   }
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
   const pageSizeRaw = Number(searchParams.get("page_size"));
-  const pageSize = PAGE_SIZE_OPTIONS.includes(pageSizeRaw) ? pageSizeRaw : 12;
+  const pageSize = PAGE_SIZE_OPTIONS.includes(pageSizeRaw) ? pageSizeRaw : DEFAULT_PAGE_SIZE;
   return {
     query,
     profession_area: splitCsv(searchParams.get("profession_area")),
@@ -61,10 +64,7 @@ function parseSearchParams(searchParams: URLSearchParams): VacanciesUrlState {
     salary_from: searchParams.get("salary_from") ?? "",
     salary_currency: searchParams.get("salary_currency") ?? "",
     has_salary: searchParams.get("has_salary") === "true",
-    skills: searchParams.get("skills") ?? "",
-    english_level: searchParams.get("english_level") ?? "",
-    education_level: searchParams.get("education_level") ?? "",
-    published_within: searchParams.get("published_within") ?? "",
+    sort: parseSort(searchParams.get("sort")),
     page,
     pageSize,
   };
@@ -84,10 +84,6 @@ function parsedToDraft(p: VacanciesUrlState): VacancySearchDraft {
     salary_from: p.salary_from,
     salary_currency: p.salary_currency,
     has_salary: p.has_salary,
-    skills: p.skills,
-    english_level: p.english_level,
-    education_level: p.education_level,
-    published_within: p.published_within,
     pageSize: p.pageSize,
   };
 }
@@ -106,12 +102,9 @@ function buildSearchParams(parsed: VacanciesUrlState): URLSearchParams {
   if (parsed.salary_from) p.set("salary_from", parsed.salary_from);
   if (parsed.salary_currency) p.set("salary_currency", parsed.salary_currency);
   if (parsed.has_salary) p.set("has_salary", "true");
-  if (parsed.skills) p.set("skills", parsed.skills);
-  if (parsed.english_level) p.set("english_level", parsed.english_level);
-  if (parsed.education_level) p.set("education_level", parsed.education_level);
-  if (parsed.published_within) p.set("published_within", parsed.published_within);
+  if (parsed.sort && parsed.sort !== "relevance") p.set("sort", parsed.sort);
   if (parsed.page > 1) p.set("page", String(parsed.page));
-  if (parsed.pageSize !== 12) p.set("page_size", String(parsed.pageSize));
+  if (parsed.pageSize !== DEFAULT_PAGE_SIZE) p.set("page_size", String(parsed.pageSize));
   return p;
 }
 
@@ -120,7 +113,11 @@ function buildReturnTo(parsed: VacanciesUrlState): string {
   return s ? `?${s}` : "";
 }
 
-function draftToParsed(d: VacancySearchDraft, page: number): VacanciesUrlState {
+function draftToParsed(
+  d: VacancySearchDraft,
+  page: number,
+  sort: VacancySortMode,
+): VacanciesUrlState {
   return {
     query: d.query.trim(),
     profession_area: d.profession_area,
@@ -134,17 +131,14 @@ function draftToParsed(d: VacancySearchDraft, page: number): VacanciesUrlState {
     salary_from: d.salary_from.trim(),
     salary_currency: d.salary_currency.trim(),
     has_salary: d.has_salary,
-    skills: d.skills.trim(),
-    english_level: d.english_level.trim(),
-    education_level: d.education_level.trim(),
-    published_within: d.published_within.trim(),
+    sort,
     page,
     pageSize: d.pageSize,
   };
 }
 
 function filtersActiveParsed(p: VacanciesUrlState): boolean {
-  if (p.pageSize !== 12) return true;
+  if (p.pageSize !== DEFAULT_PAGE_SIZE) return true;
   return !!(
     p.profession_area.length
     || p.specialization
@@ -157,10 +151,6 @@ function filtersActiveParsed(p: VacanciesUrlState): boolean {
     || p.salary_from
     || p.salary_currency
     || p.has_salary
-    || p.skills
-    || p.english_level
-    || p.education_level
-    || p.published_within
   );
 }
 
@@ -170,7 +160,6 @@ export default function VacanciesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [sortValue, setSortValue] = useState("relevance");
   const [showLikedOnly, setShowLikedOnly] = useState(false);
   const { likedVacancies, isLiked, toggleLike } = useLikedVacancies();
 
@@ -200,10 +189,7 @@ export default function VacanciesPage() {
       salary_from: Number.isFinite(salaryN) && salaryN > 0 ? salaryN : undefined,
       salary_currency: p.salary_currency || undefined,
       has_salary: p.has_salary ? true : undefined,
-      skills: p.skills ? p.skills.split(",").map(s => s.trim()).filter(Boolean) : undefined,
-      english_level: p.english_level || undefined,
-      education_level: p.education_level || undefined,
-      published_within: p.published_within || undefined,
+      sort: p.sort,
     })
       .then(d => setData(d))
       .catch(e => setError(e.message))
@@ -218,12 +204,12 @@ export default function VacanciesPage() {
 
   function applyMainSearch(e: React.FormEvent) {
     e.preventDefault();
-    const next = draftToParsed(draft, 1);
+    const next = draftToParsed(draft, 1, parsed.sort);
     setSearchParams(buildSearchParams(next));
   }
 
   function applyFilters() {
-    const next = draftToParsed(draft, 1);
+    const next = draftToParsed(draft, 1, parsed.sort);
     setSearchParams(buildSearchParams(next));
     setFiltersOpen(false);
   }
@@ -231,6 +217,12 @@ export default function VacanciesPage() {
   function handleQuickFilter(value: string) {
     const next = { ...parsed, query: value, page: 1 };
     setSearchParams(buildSearchParams(next));
+  }
+
+  function handleSortChange(value: string) {
+    const sort = parseSort(value);
+    if (sort === parsed.sort) return;
+    setSearchParams(buildSearchParams({ ...parsed, sort, page: 1 }));
   }
 
   function handleResetFilters() {
@@ -304,8 +296,8 @@ export default function VacanciesPage() {
             total={likedVacancies.length}
             quickFilterValue={parsed.query}
             onQuickFilter={handleQuickFilter}
-            sortValue={sortValue}
-            onSortChange={setSortValue}
+            sortValue={parsed.sort}
+            onSortChange={handleSortChange}
           />
           {likedVacancies.length === 0 ? (
             <VacanciesEmptyState
@@ -348,8 +340,8 @@ export default function VacanciesPage() {
             total={data.total}
             quickFilterValue={parsed.query}
             onQuickFilter={handleQuickFilter}
-            sortValue={sortValue}
-            onSortChange={setSortValue}
+            sortValue={parsed.sort}
+            onSortChange={handleSortChange}
           />
 
           {data.items.length === 0 && (

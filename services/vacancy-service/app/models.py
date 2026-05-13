@@ -49,6 +49,10 @@ class CanonicalVacancy(Base):
     salary_from = Column(Integer, nullable=True)
     salary_to = Column(Integer, nullable=True)
     salary_currency = Column(String(10), nullable=True, server_default="RUB")
+    # Рублёвый эквивалент (приведённый к месяцу) — используется для сортировки
+    # и фильтрации по зарплате независимо от исходной валюты вакансии.
+    salary_from_rub = Column(Integer, nullable=True)
+    salary_to_rub = Column(Integer, nullable=True)
     seniority = Column(String(50), nullable=True)
     employment_type = Column(ARRAY(String(50)), nullable=True)
     work_format = Column(ARRAY(String(30)), nullable=False, server_default=text("'{}'"))
@@ -85,6 +89,8 @@ class CanonicalVacancy(Base):
         Index("ix_canonical_vacancies_location_city", "location_city"),
         Index("ix_canonical_vacancies_experience_level", "experience_level"),
         Index("ix_canonical_vacancies_published_at", "published_at"),
+        Index("ix_canonical_vacancies_salary_to_rub", "salary_to_rub"),
+        Index("ix_canonical_vacancies_salary_from_rub", "salary_from_rub"),
     )
 
 

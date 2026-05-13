@@ -21,6 +21,23 @@ import requests
 import sys
 import os
 
+# Импортируем классификаторы из backfill-скрипта (он самодостаточный).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from backfill_classification import (  # noqa: E402
+    HH_EXPERIENCE_TO_LEVEL,
+    HH_EXPERIENCE_TO_SENIORITY,
+    classify_profession_area,
+    classify_specialization,
+    infer_education_level,
+    infer_employment_type,
+    infer_english_level,
+    infer_schedule_type,
+    infer_seniority,
+    infer_work_format,
+    split_location,
+)
+from salary_parser import compute_rub_amounts  # noqa: E402
+
 # ── Настройки ────────────────────────────────────────────────────────────────
 VACANCY_SERVICE_URL = os.getenv("VACANCY_SERVICE_URL", "http://localhost:8004")
 INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "my_internal_service_token")
@@ -29,13 +46,27 @@ HH_API_BASE = "https://api.hh.ru"
 HH_AREA_RUSSIA = 113       # Россия
 HH_SEARCH_QUERY = "Python OR JavaScript OR Backend OR Frontend OR Data Engineer"
 TARGET_COUNT = int(os.getenv("HH_TARGET_COUNT", "500"))  # сколько вакансий загрузить
+HH_PAGE_DELAY_SEC = float(os.getenv("HH_PAGE_DELAY_SEC", "1.5"))  # пауза между страницами
+HH_DETAIL_DELAY_SEC = float(os.getenv("HH_DETAIL_DELAY_SEC", "0.4"))  # пауза между деталями
+HH_MAX_RETRIES = int(os.getenv("HH_MAX_RETRIES", "3"))
 
 FAKE_SOURCE_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://hh.ru"))
 
+# User-Agent для HH API. По требованию HH должен содержать имя приложения и
+# контакт. Можно переопределить через env HH_USER_AGENT.
 HEADERS_HH = {
-    "User-Agent": "CareerNavigator/1.0 (student diploma project; contact: student@university.ru)",
+    "User-Agent": os.getenv(
+        "HH_USER_AGENT",
+        "career-navigator-thesis/1.0 (manankova-15@mail.ru)",
+    ),
     "Accept": "application/json",
 }
+
+# Если есть OAuth-токен приложения (получить можно на https://dev.hh.ru/admin),
+# подкладываем его — это снимает анти-бот блокировки на анонимные запросы.
+_hh_token = os.getenv("HH_AUTH_TOKEN")
+if _hh_token:
+    HEADERS_HH["Authorization"] = f"Bearer {_hh_token}"
 
 
 def make_admin_jwt() -> str:
@@ -101,10 +132,43 @@ def salary_info(vacancy: dict) -> tuple[int | None, int | None, str]:
     return salary_from, salary_to, currency
 
 
+def _hh_get(url: str, params: dict | None = None, timeout: int = 15) -> requests.Response:
+    """
+    GET к HH API с ретраями и понятной диагностикой 403/429.
+    На 403 печатаем тело — там видно, captcha_required это или forbidden.
+    """
+    delay = 2.0
+    last_resp: requests.Response | None = None
+    for attempt in range(1, HH_MAX_RETRIES + 1):
+        resp = requests.get(url, params=params, headers=HEADERS_HH, timeout=timeout)
+        last_resp = resp
+        if resp.status_code == 200:
+            return resp
+        if resp.status_code in (403, 429):
+            body = (resp.text or "").strip()[:400]
+            print(
+                f"  ⚠ HH ответил {resp.status_code} (попытка {attempt}/{HH_MAX_RETRIES}): {body}"
+            )
+            if "captcha_required" in body:
+                print(
+                    "  ⛔ HH требует пройти капчу. Открой в браузере https://hh.ru/search/vacancy?text=Python "
+                    "и пройди капчу, либо подожди 10–30 минут и повтори. "
+                    "Альтернатива — задать HH_AUTH_TOKEN (см. https://dev.hh.ru/admin)."
+                )
+                resp.raise_for_status()
+            time.sleep(delay)
+            delay *= 2
+            continue
+        # Любая другая ошибка — поднимаем сразу.
+        resp.raise_for_status()
+        return resp
+    assert last_resp is not None
+    last_resp.raise_for_status()
+    return last_resp
+
+
 def fetch_vacancy_detail(hh_id: str) -> dict:
-    url = f"{HH_API_BASE}/vacancies/{hh_id}"
-    resp = requests.get(url, headers=HEADERS_HH, timeout=10)
-    resp.raise_for_status()
+    resp = _hh_get(f"{HH_API_BASE}/vacancies/{hh_id}", timeout=10)
     return resp.json()
 
 
@@ -144,11 +208,18 @@ def run():
 
         print(f"[hh-seed] Запрос страницы {page}…")
         try:
-            resp = requests.get(f"{HH_API_BASE}/vacancies", params=params,
-                                headers=HEADERS_HH, timeout=15)
-            resp.raise_for_status()
+            resp = _hh_get(f"{HH_API_BASE}/vacancies", params=params, timeout=15)
         except Exception as e:
             print(f"[hh-seed] Ошибка запроса к HH API: {e}")
+            print(
+                "[hh-seed] Подсказка: 403 на HH API почти всегда значит, что твой IP "
+                "временно заблокирован анти-ботом. Варианты:\n"
+                "  • подожди 10–30 минут и попробуй снова\n"
+                "  • смени сеть (мобильный 4G/VPN)\n"
+                "  • запусти `python scripts/reseed_vacancies.py --skip-hh` (только Telegram)\n"
+                "  • зарегистрируй приложение на https://dev.hh.ru/admin и передай "
+                "HH_AUTH_TOKEN=<token> python scripts/seed_hh_vacancies.py"
+            )
             break
 
         data = resp.json()
@@ -170,7 +241,7 @@ def run():
             published_at = item.get("published_at")
 
             # Получаем детали вакансии (навыки, описание)
-            time.sleep(0.3)
+            time.sleep(HH_DETAIL_DELAY_SEC)
             description = None
             try:
                 detail = fetch_vacancy_detail(hh_id)
@@ -200,7 +271,22 @@ def run():
                 skills = []
                 description = None
 
-            seniority = detect_seniority(title, description)
+            seniority = detect_seniority(title, description) or infer_seniority(
+                f"{title} {description or ''}"
+            )
+
+            blob = " ".join(p for p in [title, company, description, location, " ".join(skills)] if p)
+            hh_exp_id = ((item.get("experience") or {}).get("id")) or ""
+            experience_level = HH_EXPERIENCE_TO_LEVEL.get(hh_exp_id)
+            if not seniority:
+                seniority = HH_EXPERIENCE_TO_SENIORITY.get(hh_exp_id)
+            city_guess, country_guess = split_location(location)
+
+            # Считаем RUB-эквивалент: HH-вакансии могут быть в USD/EUR/KZT,
+            # а сортировка и фильтр по зарплате идут в рублях.
+            salary_from_rub, salary_to_rub = compute_rub_amounts(
+                salary_from, salary_to, currency
+            )
 
             vacancy_data = {
                 "source_id": source_id,
@@ -209,12 +295,23 @@ def run():
                 "company": company[:300],
                 "canonical_url": canonical_url,
                 "location": location,
+                "location_city": city_guess,
+                "location_country": country_guess or ("Россия" if location else None),
                 "salary_from": salary_from,
                 "salary_to": salary_to,
                 "salary_currency": currency,
+                "salary_from_rub": salary_from_rub,
+                "salary_to_rub": salary_to_rub,
+                "salary_period": "month",
                 "seniority": seniority,
-                "employment_type": None,
-                "work_format": [],
+                "experience_level": experience_level,
+                "employment_type": infer_employment_type(blob),
+                "work_format": infer_work_format(blob),
+                "schedule_type": infer_schedule_type(blob),
+                "profession_area": classify_profession_area(blob, title),
+                "specialization": classify_specialization(blob, title),
+                "english_level": infer_english_level(blob),
+                "education_level": infer_education_level(blob),
                 "description": description,
                 "skills": skills,
                 "status": "active",
@@ -230,7 +327,7 @@ def run():
             time.sleep(0.2)
 
         page += 1
-        time.sleep(1.0)
+        time.sleep(HH_PAGE_DELAY_SEC)
 
     print(f"\n[hh-seed] Готово! Загружено вакансий: {loaded}")
 

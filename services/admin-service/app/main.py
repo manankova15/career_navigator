@@ -5,6 +5,7 @@ from fastapi.responses import RedirectResponse
 from .config import settings
 from .routers.assessments import router as assessments_router
 from .routers.audit import router as audit_router
+from .routers.ingestion_runs import router as ingestion_runs_router
 from .routers.sources import router as sources_router
 from .routers.stats import router as stats_router
 from .routers.users import router as users_router
@@ -35,6 +36,7 @@ app.include_router(stats_router)
 app.include_router(vacancies_router)
 app.include_router(sources_router)
 app.include_router(assessments_router)
+app.include_router(ingestion_runs_router)
 app.include_router(users_router)
 
 

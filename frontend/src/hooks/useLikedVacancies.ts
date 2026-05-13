@@ -62,6 +62,8 @@ export function useLikedVacancies() {
         await likeVacancyOnServer(vacancy.id, {
           vacancy_title: vacancy.title,
           vacancy_skills: vacancy.skills ?? [],
+          vacancy_category: vacancy.profession_area ?? null,
+          vacancy_specialization: vacancy.specialization ?? null,
         });
       }
     } catch {

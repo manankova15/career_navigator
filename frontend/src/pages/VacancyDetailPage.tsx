@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { getVacancy, Vacancy, recordVacancyInterest, vacancySalaryCurrency } from "../api/vacancies";
+import { getVacancy, Vacancy, recordVacancyInterest, vacancySalaryCurrency, currencyDisplaySymbol } from "../api/vacancies";
 import { useLikedVacancies } from "../hooks/useLikedVacancies";
 import { listAssessments, AssessmentSummary } from "../api/assessments";
 import { recordEvent } from "../api/analytics";
@@ -114,6 +114,8 @@ export default function VacancyDetailPage() {
       await recordVacancyInterest(id, interested, {
         vacancyTitle: vacancy?.title ?? null,
         vacancySkills: vacancy?.skills ?? [],
+        vacancyCategory: vacancy?.profession_area ?? null,
+        vacancySpecialization: vacancy?.specialization ?? null,
       });
     }
   }
@@ -126,11 +128,11 @@ export default function VacancyDetailPage() {
     const parts = [vacancy!.salary_from, vacancy!.salary_to]
       .filter(Boolean)
       .map(n => n!.toLocaleString("ru-RU"));
-    const cur = vacancySalaryCurrency(vacancy!);
-    const sym = cur === "RUB" ? "₽" : cur;
-    const period = vacancy!.salary_period
-      ? SALARY_PERIOD_LABEL[vacancy!.salary_period] ?? vacancy!.salary_period
-      : "";
+    const sym = currencyDisplaySymbol(vacancySalaryCurrency(vacancy!));
+    // Внутри БД зарплата всегда хранится приведённой к месяцу. Если в источнике
+    // был указан другой период — нормализатор уже разделил/умножил суммы.
+    const periodValue = vacancy!.salary_period || "month";
+    const period = SALARY_PERIOD_LABEL[periodValue] ?? periodValue;
     const gross = vacancy!.salary_gross_type
       ? SALARY_GROSS_LABEL[vacancy!.salary_gross_type] ?? ""
       : "";

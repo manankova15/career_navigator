@@ -17,12 +17,14 @@ class Profile(Base):
     first_name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=True)
     patronymic = Column(String(100), nullable=True)
-    bio = Column(Text, nullable=True)
-    location = Column(String(200), nullable=True)
-    target_role = Column(String(200), nullable=True)
-    target_industry = Column(String(200), nullable=True)
-    headline = Column(String(200), nullable=True)
-    summary = Column(Text, nullable=True)
+    # Канонический код города (см. CITIES во фронте) либо null.
+    location = Column(String(64), nullable=True)
+    # Канонический код специализации (см. SPECIALIZATION_OPTIONS).
+    # Используется напрямую в рекомендательной модели (specialization_score).
+    specialization = Column(String(64), nullable=True)
+    # Канонический код профессиональной области (см. PROFESSION_AREAS).
+    # Используется напрямую в рекомендательной модели (category_score).
+    target_industry = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -51,9 +53,7 @@ class ProfilePreference(Base):
         nullable=False,
         unique=True,
     )
-    preferred_locations = Column(ARRAY(String(100)), nullable=False, server_default="{}")
     work_formats = Column(ARRAY(String(50)), nullable=False, server_default="{}")
-    target_roles = Column(ARRAY(String(100)), nullable=False, server_default="{}")
     salary_from = Column(Integer, nullable=True)
     salary_to = Column(Integer, nullable=True)
     seniority = Column(String(50), nullable=True)

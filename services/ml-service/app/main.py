@@ -39,14 +39,23 @@ async def health():
         "status": "ok",
         "service": settings.service_name,
         "version": settings.version,
-        "algorithm": "content_ahp_v2",
+        "algorithm": settings.algorithm_name,
         "weights": {
             "skills": settings.weight_skills,
-            "role": settings.weight_role,
+            "specialization": settings.weight_specialization,
+            "category": settings.weight_category,
             "seniority": settings.weight_seniority,
             "salary": settings.weight_salary,
             "location": settings.weight_location,
             "format": settings.weight_format,
+        },
+        "behavior": {
+            "trust_n0": settings.behavior_trust_n0,
+            "alpha_category": settings.behavior_alpha_category,
+            "alpha_specialization": settings.behavior_alpha_specialization,
+            "alpha_skills": settings.behavior_alpha_skills,
+            "alpha_title": settings.behavior_alpha_title,
+            "time_decay_half_life_days": settings.time_decay_half_life_days,
         },
     }
 

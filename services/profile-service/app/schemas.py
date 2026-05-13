@@ -9,12 +9,12 @@ class ProfileIn(BaseModel):
     first_name: str | None = Field(None, max_length=100)
     last_name: str | None = Field(None, max_length=100)
     patronymic: str | None = Field(None, max_length=100)
-    bio: str | None = None
-    location: str | None = Field(None, max_length=200)
-    target_role: str | None = Field(None, max_length=200)
-    target_industry: str | None = Field(None, max_length=200)
-    headline: str | None = Field(None, max_length=200)
-    summary: str | None = None
+    # Канонический код города (см. фронтовый CITIES).
+    location: str | None = Field(None, max_length=64)
+    # Канонический код специализации (см. SPECIALIZATION_OPTIONS).
+    specialization: str | None = Field(None, max_length=64)
+    # Канонический код профессиональной области (см. PROFESSION_AREAS).
+    target_industry: str | None = Field(None, max_length=64)
 
 
 class ProfileOut(BaseModel):
@@ -24,12 +24,9 @@ class ProfileOut(BaseModel):
     first_name: str | None
     last_name: str | None
     patronymic: str | None
-    bio: str | None
     location: str | None
-    target_role: str | None
+    specialization: str | None
     target_industry: str | None
-    headline: str | None
-    summary: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -37,9 +34,7 @@ class ProfileOut(BaseModel):
 
 
 class ProfilePreferenceIn(BaseModel):
-    preferred_locations: list[str] = Field(default_factory=list)
     work_formats: list[str] = Field(default_factory=list)
-    target_roles: list[str] = Field(default_factory=list)
     salary_from: int | None = None
     salary_to: int | None = None
     seniority: str | None = None

@@ -10,6 +10,10 @@
 
 Другие варианты:
   python scripts/reseed_vacancies.py --truncate-only   # только очистка БД
+  python scripts/reseed_vacancies.py --skip-hh         # пропустить HH.ru
+  python scripts/reseed_vacancies.py --skip-telegram   # пропустить Telegram
+  python scripts/reseed_vacancies.py --no-truncate     # не чистить БД, дозалить
+  python scripts/reseed_vacancies.py --reset-session   # сбросить файл сессии Telegram перед сбором
   HH_TARGET_COUNT=100 TELEGRAM_TARGET_COUNT=100 python scripts/reseed_vacancies.py
 """
 
@@ -74,31 +78,57 @@ def main():
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     truncate_only = "--truncate-only" in sys.argv
+    skip_hh = "--skip-hh" in sys.argv
+    skip_telegram = "--skip-telegram" in sys.argv
+    no_truncate = "--no-truncate" in sys.argv
+    reset_tg_session = "--reset-session" in sys.argv
+
     if truncate_only:
         ok = truncate_vacancies()
         sys.exit(0 if ok else 1)
 
-    print("[reseed] 1/3 Очистка старых вакансий…")
-    if not truncate_vacancies():
-        sys.exit(1)
+    if not no_truncate:
+        print("[reseed] 1/3 Очистка старых вакансий…")
+        if not truncate_vacancies():
+            sys.exit(1)
+    else:
+        print("[reseed] 1/3 Пропускаем очистку (--no-truncate)")
 
-    print("\n[reseed] 2/3 Загрузка вакансий с HH.ru…")
-    rc = subprocess.run(
-        [sys.executable, os.path.join(script_dir, "seed_hh_vacancies.py")],
-        env=os.environ,
-        cwd=os.path.dirname(script_dir),
-    )
-    if rc.returncode != 0:
-        sys.exit(rc.returncode)
+    if not skip_hh:
+        print("\n[reseed] 2/3 Загрузка вакансий с HH.ru…")
+        rc = subprocess.run(
+            [sys.executable, os.path.join(script_dir, "seed_hh_vacancies.py")],
+            env=os.environ,
+            cwd=os.path.dirname(script_dir),
+        )
+        if rc.returncode != 0:
+            print(
+                "[reseed] HH.ru вернул ошибку. Если это 403, скорее всего твой IP "
+                "временно заблокирован их анти-ботом. Запусти с --skip-hh, "
+                "чтобы продолжить только с Telegram."
+            )
+            if not skip_telegram:
+                # Не выходим — продолжаем с Telegram, чтобы не терять прогресс.
+                pass
+            else:
+                sys.exit(rc.returncode)
+    else:
+        print("\n[reseed] 2/3 Пропускаем HH.ru (--skip-hh)")
 
-    print("\n[reseed] 3/3 Загрузка вакансий из Telegram-канала…")
-    rc = subprocess.run(
-        [sys.executable, os.path.join(script_dir, "seed_telegram_vacancies.py")],
-        env=os.environ,
-        cwd=os.path.dirname(script_dir),
-    )
-    if rc.returncode != 0:
-        sys.exit(rc.returncode)
+    if not skip_telegram:
+        print("\n[reseed] 3/3 Загрузка вакансий из Telegram-канала…")
+        tg_cmd = [sys.executable, os.path.join(script_dir, "seed_telegram_vacancies.py")]
+        if reset_tg_session:
+            tg_cmd.append("--reset-session")
+        rc = subprocess.run(
+            tg_cmd,
+            env=os.environ,
+            cwd=os.path.dirname(script_dir),
+        )
+        if rc.returncode != 0:
+            sys.exit(rc.returncode)
+    else:
+        print("\n[reseed] 3/3 Пропускаем Telegram (--skip-telegram)")
 
     print("\n[reseed] Готово.")
 

@@ -147,6 +147,8 @@ def apply_feedback(
         source="recommendation_card",
         vacancy_title=features.get("vacancy_title"),
         vacancy_skills=list(features.get("vacancy_skills") or rec.matched_skills or []),
+        vacancy_category=features.get("vacancy_category"),
+        vacancy_specialization=features.get("vacancy_specialization"),
     )
     db.commit()
     db.refresh(rec)
@@ -168,6 +170,8 @@ def upsert_like(
     vacancy_id: UUID,
     vacancy_title: str | None,
     vacancy_skills: list[str] | None,
+    vacancy_category: str | None = None,
+    vacancy_specialization: str | None = None,
 ) -> UserLikedVacancy:
     row = (
         db.query(UserLikedVacancy)
@@ -176,10 +180,16 @@ def upsert_like(
     )
     title = (vacancy_title or "")[:300]
     skills = vacancy_skills if vacancy_skills is not None else []
+    cat = (vacancy_category or "").strip() or None
+    spec = (vacancy_specialization or "").strip() or None
     if row:
         row.unliked_at = None
         row.vacancy_title = title or row.vacancy_title
         row.vacancy_skills = skills
+        if cat:
+            row.vacancy_category = cat
+        if spec:
+            row.vacancy_specialization = spec
         row.liked_at = datetime.utcnow()
     else:
         row = UserLikedVacancy(
@@ -187,6 +197,8 @@ def upsert_like(
             vacancy_id=vacancy_id,
             vacancy_title=title or None,
             vacancy_skills=skills,
+            vacancy_category=cat,
+            vacancy_specialization=spec,
         )
         db.add(row)
 
@@ -201,6 +213,8 @@ def upsert_like(
         source="like",
         vacancy_title=title or None,
         vacancy_skills=skills,
+        vacancy_category=cat,
+        vacancy_specialization=spec,
     )
     db.commit()
     db.refresh(row)
@@ -247,6 +261,8 @@ def upsert_signal(
     source: str | None,
     vacancy_title: str | None,
     vacancy_skills: list[str] | None,
+    vacancy_category: str | None = None,
+    vacancy_specialization: str | None = None,
 ) -> UserVacancySignal:
     row = (
         db.query(UserVacancySignal)
@@ -258,6 +274,8 @@ def upsert_signal(
     )
     title = (vacancy_title or "")[:300] or None
     skills = list(vacancy_skills or [])
+    cat = (vacancy_category or "").strip() or None
+    spec = (vacancy_specialization or "").strip() or None
     if row:
         row.sentiment = float(sentiment)
         row.kind = kind
@@ -266,6 +284,10 @@ def upsert_signal(
             row.vacancy_title = title
         if skills:
             row.vacancy_skills = skills
+        if cat:
+            row.vacancy_category = cat
+        if spec:
+            row.vacancy_specialization = spec
         row.updated_at = datetime.utcnow()
     else:
         row = UserVacancySignal(
@@ -276,6 +298,8 @@ def upsert_signal(
             source=source,
             vacancy_title=title,
             vacancy_skills=skills,
+            vacancy_category=cat,
+            vacancy_specialization=spec,
         )
         db.add(row)
     db.flush()
