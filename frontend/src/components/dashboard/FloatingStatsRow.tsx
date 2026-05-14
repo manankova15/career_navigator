@@ -12,7 +12,6 @@ const STATS_CONFIG = [
     accentGradient: "linear-gradient(90deg, #5B5CEB 0%, #8B5CF6 100%)",
     iconBg: "#EEF2FF",
     iconPath: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
-    chip: "Сегодня",
   },
   {
     label: "Лучший результат",
@@ -20,7 +19,6 @@ const STATS_CONFIG = [
     accentGradient: "linear-gradient(90deg, #10B981 0%, #34D399 100%)",
     iconBg: "#ECFDF5",
     iconPath: "M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z",
-    chip: "Рост",
   },
   {
     label: "Средний результат",
@@ -28,7 +26,6 @@ const STATS_CONFIG = [
     accentGradient: "linear-gradient(90deg, #06B6D4 0%, #67E8F9 100%)",
     iconBg: "#ECFEFF",
     iconPath: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z",
-    chip: "Актуально",
   },
   {
     label: "Просмотрено вакансий",
@@ -36,7 +33,6 @@ const STATS_CONFIG = [
     accentGradient: "linear-gradient(90deg, #F59E0B 0%, #FCD34D 100%)",
     iconBg: "#FFF7E8",
     iconPath: "M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z",
-    chip: "Актуально",
   },
 ];
 
@@ -62,8 +58,6 @@ function StatIcon({ path, bg }: { path: string; bg: string }) {
 }
 
 export default function FloatingStatsRow({ progress, loading }: FloatingStatsRowProps) {
-  const metaText = progress != null ? "Данные обновлены сегодня" : "Начните с первого шага";
-
   return (
     <div
       className="dashboard-stats-floating-wrapper"
@@ -71,7 +65,7 @@ export default function FloatingStatsRow({ progress, loading }: FloatingStatsRow
       aria-label="Статистика"
     >
       <div className="dashboard-stats-grid">
-        {STATS_CONFIG.map(({ label, getValue, accentGradient, iconBg, iconPath, chip }) => (
+        {STATS_CONFIG.map(({ label, getValue, accentGradient, iconBg, iconPath }) => (
           <div
             key={label}
             className="dashboard-stat-card"
@@ -107,28 +101,13 @@ export default function FloatingStatsRow({ progress, loading }: FloatingStatsRow
                 background: accentGradient,
               }}
             />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "flex-start", marginBottom: 12 }}>
               <StatIcon path={iconPath} bg={iconBg} />
-              <span
-                style={{
-                  background: "#F8FAFF",
-                  border: "1px solid #E6EAF2",
-                  color: "#64748B",
-                  borderRadius: 999,
-                  padding: "6px 10px",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  flexShrink: 0,
-                }}
-              >
-                {chip}
-              </span>
             </div>
             <div style={{ fontSize: 42, fontWeight: 700, lineHeight: "46px", color: "#0F172A", letterSpacing: "-0.02em" }}>
               {loading ? <span style={{ fontSize: 16, color: "#94A3B8" }}>—</span> : getValue(progress)}
             </div>
             <div style={{ fontSize: 14, fontWeight: 600, color: "#0F172A", marginTop: 4 }}>{label}</div>
-            <div style={{ fontSize: 14, fontWeight: 500, color: "#94A3B8", marginTop: 2 }}>{metaText}</div>
           </div>
         ))}
       </div>

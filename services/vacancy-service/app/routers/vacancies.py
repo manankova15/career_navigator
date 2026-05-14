@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..crud import (
+    bulk_upsert_canonical,
     expire_vacancies,
     get_unprocessed_raw,
     get_vacancy,
@@ -16,6 +17,8 @@ from ..crud import (
 from ..database import get_db
 from ..deps import require_admin
 from ..schemas import (
+    CanonicalVacancyBatchIn,
+    CanonicalVacancyBatchOut,
     CanonicalVacancyIn,
     CanonicalVacancyOut,
     RawVacancyIn,
@@ -138,6 +141,20 @@ async def upsert_canonical_vacancy(
 ):
     vacancy, _ = upsert_canonical(db, data)
     return vacancy
+
+
+@router.post(
+    "/internal/canonical/batch",
+    response_model=CanonicalVacancyBatchOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def bulk_upsert_canonical_vacancies(
+    data: CanonicalVacancyBatchIn,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    """Fast batch upsert for reseed scripts; keeps single admin upsert untouched."""
+    return CanonicalVacancyBatchOut(upserted=bulk_upsert_canonical(db, data.items))
 
 
 @router.post("/internal/raw/{raw_id}/mark-processed", status_code=status.HTTP_204_NO_CONTENT)

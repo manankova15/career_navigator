@@ -54,8 +54,6 @@ function StatIcon({ path, bg }: { path: string; bg: string }) {
 }
 
 export default function StatsGrid({ progress, loading }: StatsGridProps) {
-  const metaText = progress != null ? "Данные обновлены сегодня" : "Начните с первого шага";
-
   return (
     <div
       style={{ gap: 20 }}
@@ -89,7 +87,6 @@ export default function StatsGrid({ progress, loading }: StatsGridProps) {
             {loading ? <span style={{ fontSize: 16, color: "#94A3B8" }}>—</span> : getValue(progress)}
           </div>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#0F172A", marginTop: 8 }}>{label}</div>
-          <div style={{ fontSize: 13, color: "#94A3B8", marginTop: 4 }}>{metaText}</div>
         </div>
       ))}
     </div>

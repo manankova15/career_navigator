@@ -30,6 +30,7 @@ coverage/
 *.key
 *.crt
 secrets/
+.tmp_skills_gen
 
 
 *.log

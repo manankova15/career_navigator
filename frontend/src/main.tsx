@@ -10,6 +10,7 @@ import Spinner from "./components/Spinner";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import VacanciesPage from "./pages/VacanciesPage";
 import VacancyDetailPage from "./pages/VacancyDetailPage";
@@ -31,6 +32,7 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage onLogin={setUser} />} />
           <Route path="/register" element={<RegisterPage onLogin={setUser} />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

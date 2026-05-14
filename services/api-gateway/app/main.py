@@ -55,17 +55,32 @@ _ROUTES: list[tuple[str, str]] = [
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    # Use Authorization token as key for authenticated requests so that
-    # each user gets their own bucket (important when all traffic arrives
-    # from the same Podman host IP).
+    # Health probes must remain available under load: they are used by Docker,
+    # monitoring and load tests to distinguish app failures from limiter policy.
+    if request.url.path in {"/health", "/ready"}:
+        return await call_next(request)
+
+    # Use Authorization token as key for authenticated requests so that each
+    # user gets their own bucket (important when all traffic arrives from the
+    # same Podman/Docker host IP). Public read-only endpoints intentionally get
+    # a wider shared bucket: otherwise a local load test from one IP measures
+    # only the gateway limiter, not downstream service throughput.
     auth_header = request.headers.get("authorization", "")
+    limit = settings.rate_limit_requests
     if auth_header.startswith("Bearer "):
-        # Use last 32 chars of token as key — unique per user session
+        # Use last 32 chars of token as key — unique per user session.
+        # Load tests may intentionally reuse one test account, so keep the
+        # authenticated bucket wider than the base per-IP protection.
         client_key = "user:" + auth_header[-32:]
+        limit *= settings.rate_limit_auth_multiplier
     else:
         client_key = "ip:" + (request.client.host if request.client else "unknown")
+        if request.method in {"GET", "HEAD", "OPTIONS"}:
+            limit *= settings.rate_limit_public_multiplier
+        elif request.url.path.startswith("/api/auth/"):
+            limit *= settings.rate_limit_auth_multiplier
 
-    if not check_rate_limit(client_key):
+    if not check_rate_limit(client_key, limit=limit):
         return Response(
             content='{"detail":"Rate limit exceeded. Try again later."}',
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

@@ -70,7 +70,7 @@ export default function SkillsGapSection({ gaps }: Props) {
             Анализ пробелов в навыках
           </h2>
           <p style={{ fontSize: 18, fontWeight: 400, lineHeight: "28px", color: "#64748B", margin: 0, maxWidth: 720 }}>
-            Навыки, которые чаще всего встречаются в рекомендованных вакансиях и помогут повысить ваш успех при найме
+            Навыки, которые чаще всего встречаются в рекомендованных вакансиях и помогут повысить ваш успех при найме, при этом не указаны в вашем профиле
           </p>
         </div>
 
@@ -94,7 +94,7 @@ export default function SkillsGapSection({ gaps }: Props) {
 
             {topGap && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#64748B", marginBottom: 6 }}>Топ skill gap</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#64748B", marginBottom: 6 }}>Топ навык</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#0F172A" }}>{topGap.skill_name}</div>
               </div>
             )}
@@ -120,10 +120,6 @@ export default function SkillsGapSection({ gaps }: Props) {
                 </div>
               );
             })()}
-
-            <p style={{ fontSize: 14, lineHeight: "22px", color: "#64748B", margin: "0 0 18px" }}>
-              Закрытие даже 1–2 ключевых пробелов может заметно улучшить релевантность рекомендаций
-            </p>
 
             <Link
               to="/assessments"

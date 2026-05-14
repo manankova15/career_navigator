@@ -1,0 +1,8 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+GET,GET /api/auth/me,HTTPError('429 Client Error: Too Many Requests for url: GET /api/auth/me'),81,2026-05-15T10:24:48Z,2026-05-15T10:25:27Z
+GET,GET /api/vacancies,HTTPError('429 Client Error: Too Many Requests for url: GET /api/vacancies'),96,2026-05-15T10:24:47Z,2026-05-15T10:25:27Z
+GET,GET /api/profiles/me,HTTPError('401 Client Error: Unauthorized for url: GET /api/profiles/me'),10,2026-05-15T10:24:39Z,2026-05-15T10:24:47Z
+GET,GET /api/profiles/me,HTTPError('429 Client Error: Too Many Requests for url: GET /api/profiles/me'),69,2026-05-15T10:24:48Z,2026-05-15T10:25:27Z
+GET,GET /health,HTTPError('429 Client Error: Too Many Requests for url: GET /health'),123,2026-05-15T10:24:48Z,2026-05-15T10:25:27Z
+GET,GET /api/auth/me,HTTPError('401 Client Error: Unauthorized for url: GET /api/auth/me'),12,2026-05-15T10:24:36Z,2026-05-15T10:24:46Z
+POST,POST /api/auth/login,HTTPError('401 Client Error: Unauthorized for url: POST /api/auth/login'),20,2026-05-15T10:24:36Z,2026-05-15T10:24:45Z

@@ -34,6 +34,8 @@ import requests
 
 VACANCY_SERVICE_URL = os.getenv("VACANCY_SERVICE_URL", "http://localhost:8004")
 JWT_SECRET = os.getenv("JWT_SECRET", "my_super_secret_jwt_key_change_in_prod")
+TRUNCATE_CONNECT_TIMEOUT_SECONDS = float(os.getenv("TRUNCATE_CONNECT_TIMEOUT_SECONDS", "10"))
+TRUNCATE_READ_TIMEOUT_SECONDS = float(os.getenv("TRUNCATE_READ_TIMEOUT_SECONDS", "300"))
 
 
 def make_admin_jwt() -> str:
@@ -63,7 +65,11 @@ def truncate_vacancies() -> bool:
     url = f"{VACANCY_SERVICE_URL}/internal/truncate"
     headers = {"Authorization": f"Bearer {make_admin_jwt()}", "Content-Type": "application/json"}
     try:
-        r = requests.post(url, headers=headers, timeout=15)
+        r = requests.post(
+            url,
+            headers=headers,
+            timeout=(TRUNCATE_CONNECT_TIMEOUT_SECONDS, TRUNCATE_READ_TIMEOUT_SECONDS),
+        )
         r.raise_for_status()
         data = r.json()
         print(f"[reseed] Очищено: raw={data.get('raw_deleted', 0)}, canonical={data.get('canonical_deleted', 0)}")

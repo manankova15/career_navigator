@@ -90,6 +90,9 @@ BATCH_SIZE = 100
 REQUEST_DELAY = 1.5
 
 VACANCY_SERVICE_URL = os.getenv("VACANCY_SERVICE_URL", "http://localhost:8004")
+POST_CANONICAL_TIMEOUT = float(os.getenv("POST_CANONICAL_TIMEOUT", "60"))
+POST_CANONICAL_RETRIES = int(os.getenv("POST_CANONICAL_RETRIES", "3"))
+POST_CANONICAL_BATCH_SIZE = int(os.getenv("POST_CANONICAL_BATCH_SIZE", "100"))
 
 # Имя сессии Telethon (к пути добавится .session); после load_dotenv — TELEGRAM_SESSION
 _DEFAULT_TG_SESSION = os.path.join(SCRIPT_DIR, ".tg_session")
@@ -180,22 +183,105 @@ _SENIORITY_MAP = [
 
 # Типичные IT-навыки для обнаружения в тексте
 _SKILL_KEYWORDS = [
-    "Python", "SQL", "Excel", "Power BI", "Tableau", "R",
-    "Pandas", "NumPy", "Matplotlib", "Seaborn", "Plotly",
-    "PostgreSQL", "MySQL", "ClickHouse", "Redshift", "BigQuery",
-    "Spark", "Hadoop", "Airflow", "dbt", "Kafka",
-    "Machine Learning", "Deep Learning", "NLP",
-    "TensorFlow", "PyTorch", "scikit-learn", "Catboost", "XGBoost",
-    "Git", "Docker", "Kubernetes", "Linux",
-    "A/B тесты", "A/B testing", "статистика", "statistics",
-    "Google Analytics", "Amplitude", "Mixpanel",
-    "JIRA", "Confluence", "Notion",
-    "JavaScript", "TypeScript", "React", "Vue", "Angular",
-    "Java", "Kotlin", "Go", "Golang", "C++", "C#", ".NET",
-    "Swift", "iOS", "Android",
-    "REST", "API", "GraphQL",
-    "AWS", "GCP", "Azure",
-    "Looker", "Superset", "Metabase",
+    "Python",
+    "JavaScript",
+    "C++",
+    "SQL",
+    "HTML",
+    "CSS",
+    "MySQL",
+    "PostgreSQL",
+    "ORACLE",
+    "CTE",
+    "DDL",
+    "JOIN",
+    "pandas",
+    "numpy",
+    "scikit-learn",
+    "seaborn",
+    "React",
+    "Next.js",
+    "Node.js",
+    "Express",
+    "Selenium",
+    "Webpack",
+    "Helm",
+    "Git",
+    "Docker",
+    "Kubernetes",
+    "Jenkins",
+    "OpenShift",
+    "Terraform",
+    "Prometheus",
+    "Linux",
+    "CI/CD",
+    "IaC",
+    "DevOps",
+    "BGP",
+    "DNS",
+    "HTTP",
+    "ICMP",
+    "IP",
+    "IPv4",
+    "IPv6",
+    "TCP/IP",
+    "NAT",
+    "VPN",
+    "OSI",
+    "CIDR",
+    "REST",
+    "REST API",
+    "GraphQL",
+    "API",
+    "MS Office",
+    "MS Excel",
+    "ООП",
+    "BDD",
+    "DOM",
+    "Event Loop",
+    "RAII",
+    "STL",
+    "Big O",
+    "Flexbox",
+    "SSR",
+    "OWASP",
+    "WCAG",
+    "Web Security",
+    "Криптография",
+    "Аутентификация",
+    "ML",
+    "Глубокое обучение",
+    "Нейронные сети",
+    "Регрессия",
+    "Классификация",
+    "Кластеризация",
+    "Ансамблевые методы",
+    "Регуляризация",
+    "Transfer learning",
+    "Bias-variance tradeoff",
+    "A/B-тестирование",
+    "Линейная алгебра",
+    "Теория вероятностей",
+    "Математическая статистика",
+    "Временные ряды",
+    "BI",
+    "Mocking",
+    "Юнит-тестирование",
+    "Тест-дизайн",
+    "UI-дизайн",
+    "UX-дизайн",
+    "UX-исследования",
+    "Accessibility",
+    "Design systems",
+    "Эвристики Нильсена",
+    "Прототипирование",
+    "Микросервисы",
+    "Шаблоны проектирования",
+    "Функциональное программирование",
+    "Динамическое программирование",
+    "Виртуализация",
+    "AWS",
+    "Message brokers",
 ]
 
 _LOCATION_PATTERNS = [
@@ -435,17 +521,55 @@ def parse_message(msg_id: int, text: str, date, channel: str) -> dict | None:
 
 # ── Отправка в vacancy-service ────────────────────────────────────────────────
 
-def post_vacancy(vacancy_data: dict) -> bool:
-    url = f"{VACANCY_SERVICE_URL}/internal/canonical"
-    try:
-        resp = requests.post(url, json=vacancy_data, headers=INTERNAL_HEADERS, timeout=10)
+def post_vacancy_batch(vacancies: list[dict]) -> int:
+    if not vacancies:
+        return 0
+
+    url = f"{VACANCY_SERVICE_URL}/internal/canonical/batch"
+    payload = {"items": vacancies}
+    delay = 2.0
+    for attempt in range(1, POST_CANONICAL_RETRIES + 1):
+        try:
+            resp = requests.post(
+                url,
+                json=payload,
+                headers=INTERNAL_HEADERS,
+                timeout=POST_CANONICAL_TIMEOUT,
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            if attempt >= POST_CANONICAL_RETRIES:
+                print(
+                    f"  ⚠ vacancy-service не отвечает после {attempt} попыток "
+                    f"({type(e).__name__}: {e}). Пачка из {len(vacancies)} вакансий не сохранена."
+                )
+                return 0
+            print(
+                f"  … vacancy-service таймаут/недоступен на batch POST "
+                f"(попытка {attempt}/{POST_CANONICAL_RETRIES}, {type(e).__name__}), "
+                f"повтор через {delay:.0f}s"
+            )
+            time.sleep(delay)
+            delay *= 2
+            continue
+
         if resp.status_code in (200, 201):
-            return True
-        print(f"  ⚠ Ошибка добавления вакансии: {resp.status_code} {resp.text[:200]}")
-        return False
-    except Exception as e:
-        print(f"  ⚠ Сетевая ошибка: {e}")
-        return False
+            try:
+                return int(resp.json().get("upserted", len(vacancies)))
+            except Exception:
+                return len(vacancies)
+
+        if 500 <= resp.status_code < 600 and attempt < POST_CANONICAL_RETRIES:
+            print(
+                f"  … vacancy-service {resp.status_code} на batch POST "
+                f"(попытка {attempt}/{POST_CANONICAL_RETRIES}), повтор через {delay:.0f}s"
+            )
+            time.sleep(delay)
+            delay *= 2
+            continue
+
+        print(f"  ⚠ Ошибка batch-добавления: {resp.status_code} {resp.text[:300]}")
+        return 0
+    return 0
 
 
 # ── Telethon: сбор вакансий ─────────────────────────────────────────────────────
@@ -529,7 +653,9 @@ async def collect_vacancies():
     print(f"[tg-seed] Цель: {TARGET_COUNT} вакансий всего.\n")
 
     loaded  = 0
+    parsed  = 0
     skipped = 0
+    buffer: list[dict] = []
 
     for channel in channels:
         if loaded >= TARGET_COUNT:
@@ -557,26 +683,38 @@ async def collect_vacancies():
                     skipped += 1
                     continue
 
-                ok = post_vacancy(vacancy)
-                if ok:
-                    loaded += 1
-                    sal_str = ""
-                    if vacancy["salary_from"] or vacancy["salary_to"]:
-                        f_ = vacancy["salary_from"] or "?"
-                        t_ = vacancy["salary_to"]   or "?"
-                        sal_str = f" | {f_}–{t_} {vacancy.get('salary_currency', 'RUB')}"
-                    print(
-                        f"  [{loaded}/{TARGET_COUNT}] ✓ {vacancy['title'][:55]}"
-                        f" @ {vacancy['company'][:25]}{sal_str}"
-                    )
-                else:
-                    skipped += 1
+                buffer.append(vacancy)
+                parsed += 1
+                sal_str = ""
+                if vacancy["salary_from"] or vacancy["salary_to"]:
+                    f_ = vacancy["salary_from"] or "?"
+                    t_ = vacancy["salary_to"]   or "?"
+                    sal_str = f" | {f_}–{t_} {vacancy.get('salary_currency', 'RUB')}"
+                print(
+                    f"  [{parsed}/{TARGET_COUNT}] подготовлено: {vacancy['title'][:55]}"
+                    f" @ {vacancy['company'][:25]}{sal_str}"
+                )
 
-                if loaded >= TARGET_COUNT:
+                if len(buffer) >= POST_CANONICAL_BATCH_SIZE or parsed >= TARGET_COUNT:
+                    saved = post_vacancy_batch(buffer)
+                    loaded += saved
+                    print(f"  ↳ сохранено пачкой: +{saved}, всего сохранено: {loaded}")
+                    if saved < len(buffer):
+                        skipped += len(buffer) - saved
+                    buffer.clear()
+
+                if parsed >= TARGET_COUNT:
                     break
 
             offset_id = batch[-1].id
             await asyncio.sleep(REQUEST_DELAY)
+
+    if buffer:
+        saved = post_vacancy_batch(buffer)
+        loaded += saved
+        print(f"  ↳ сохранено финальной пачкой: +{saved}, всего сохранено: {loaded}")
+        if saved < len(buffer):
+            skipped += len(buffer) - saved
 
     await client.disconnect()
 

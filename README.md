@@ -17,7 +17,7 @@
 - [Podman](https://podman.io/) 4.1+ с поддержкой `podman compose` **или** Docker Compose — в `Makefile` по умолчанию `COMPOSE ?= podman compose`; при Docker: `make COMPOSE="docker compose" dev-up`.
 - Python 3.12+ и Node.js 20+ — для локальных скриптов, тестов и фронтенда вне контейнеров.
 
-На macOS с Podman перед первым запуском: `podman machine init` и `podman machine start`.
+Перед первым запуском: `podman machine init` и `podman machine start`.
 
 ## Быстрый старт
 
@@ -35,17 +35,3 @@ make dev-logs           # опционально: логи всех сервис
 - пользовательский UI: http://localhost:3000  
 - админка: http://localhost:3001  
 - API через шлюз (Swagger): http://localhost:8000/docs  
-
-Отдельные сервисы (для отладки): `auth-service` — 8001, `profile-service` — 8002, `source-service` — 8003, `vacancy-service` — 8004, `recommendation-service` — 8005, `ml-service` — 8006, `assessment-service` — 8007, `notification-service` — 8008, `bot-service` — 8009, `admin-service` — 8010, `analytics-service` — 8011. Инфраструктура: PostgreSQL 5432, Redis 6379, RabbitMQ (в т.ч. UI 15672), ClickHouse 8123, MinIO (консоль 9001).
-
-Миграции БД: `make migrate-all`.
-
-Только инфраструктура: `make infra-up` / `make infra-down`.
-
-## Фронтенд без Docker
-
-На `http://localhost:8000` должен отвечать `api-gateway` (проще всего - уже поднятый стек: `make dev-up`).
-
-```bash
-make frontend-dev     # из корня: npm install && npm run dev в frontend/
-```

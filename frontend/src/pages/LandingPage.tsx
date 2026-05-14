@@ -431,77 +431,16 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Mobile app CTA ─────────────────────────────────────────────────── */}
-      <section style={{ padding: "0 32px 80px" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ background: "linear-gradient(135deg, #3B5BDB 0%, #5C7CFA 100%)", borderRadius: 28, padding: "56px 64px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 40, flexWrap: "wrap" }}>
-            <div style={{ color: "#fff" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", opacity: 0.7, marginBottom: 12 }}>Мобильное приложение</div>
-              <h2 style={{ fontSize: 36, fontWeight: 800, margin: "0 0 12px", letterSpacing: "-0.8px", lineHeight: 1.2 }}>
-                Поиск работы<br />в вашем кармане
-              </h2>
-              <p style={{ fontSize: 16, opacity: 0.85, lineHeight: 1.6, margin: 0, maxWidth: 380 }}>
-                Получайте уведомления о новых вакансиях, проходите тесты и управляйте откликами прямо со смартфона.
-              </p>
-              <div style={{ display: "flex", gap: 12, marginTop: 28 }}>
-                {["App Store", "Google Play"].map(s => (
-                  <div key={s} style={{ padding: "12px 20px", background: "rgba(255,255,255,0.15)", backdropFilter: "blur(10px)", border: "1.5px solid rgba(255,255,255,0.3)", borderRadius: 12, cursor: "pointer", fontSize: 14, fontWeight: 600, color: "#fff", transition: "all 0.15s" }}>
-                    {s === "App Store" ? "🍎 " : "🤖 "}{s}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div style={{ background: "rgba(255,255,255,0.1)", borderRadius: 20, padding: "24px 32px", border: "1.5px solid rgba(255,255,255,0.2)", minWidth: 200, textAlign: "center" }}>
-              <div style={{ fontSize: 48, marginBottom: 8 }}>📱</div>
-              <div style={{ color: "#fff", fontSize: 14, fontWeight: 500, opacity: 0.9 }}>Сканируйте QR-код</div>
-              <div style={{ color: "#fff", fontSize: 12, opacity: 0.6, marginTop: 4 }}>для скачивания</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* ── Footer ─────────────────────────────────────────────────────────── */}
-      <footer style={{ background: "#0F172A", color: "#94A3B8", padding: "56px 32px 32px" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 48, marginBottom: 48 }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
-                  <img src="/pictures/hr-avatar-career-assistant.webp" alt="Career Navigator" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                </div>
-                <span style={{ fontSize: 16, fontWeight: 700, color: "#F1F5F9" }}>Career Navigator</span>
-              </div>
-              <p style={{ fontSize: 14, lineHeight: 1.65, maxWidth: 280, margin: 0 }}>
-                AI-платформа для поиска работы и развития карьеры в IT и технологических компаниях.
-              </p>
+      <footer style={{ background: "#0F172A", color: "#94A3B8", padding: "32px" }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
+              <img src="/pictures/hr-avatar-career-assistant.webp" alt="Career Navigator" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
             </div>
-            {[
-              { title: "Соискателям", links: ["Найти вакансии", "Рекомендации", "Тесты и задания", "Профиль"] },
-              { title: "Работодателям", links: ["Разместить вакансию", "AI-подбор", "Аналитика", "Тарифы"] },
-              { title: "Компания", links: ["О нас", "Блог", "Карьера", "Контакты"] },
-            ].map(col => (
-              <div key={col.title}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#F1F5F9", marginBottom: 16, textTransform: "uppercase", letterSpacing: "0.5px" }}>{col.title}</div>
-                {col.links.map(l => (
-                  <div key={l} style={{ marginBottom: 10 }}>
-                    <a href="#" style={{ fontSize: 14, color: "#64748B", textDecoration: "none", transition: "color 0.15s" }}
-                      onMouseEnter={e => e.currentTarget.style.color = "#94A3B8"}
-                      onMouseLeave={e => e.currentTarget.style.color = "#64748B"}>
-                      {l}
-                    </a>
-                  </div>
-                ))}
-              </div>
-            ))}
+            <span style={{ fontSize: 16, fontWeight: 700, color: "#F1F5F9" }}>Career Navigator</span>
           </div>
-          <div style={{ borderTop: "1px solid #1E293B", paddingTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-            <div style={{ fontSize: 13 }}>© 2025 Career Navigator. Все права защищены.</div>
-            <div style={{ display: "flex", gap: 20 }}>
-              {["Политика конфиденциальности", "Условия использования"].map(l => (
-                <a key={l} href="#" style={{ fontSize: 13, color: "#64748B", textDecoration: "none" }}>{l}</a>
-              ))}
-            </div>
-          </div>
+          <div style={{ fontSize: 13 }}>© 2025 Career Navigator. Все права защищены.</div>
         </div>
       </footer>
     </div>

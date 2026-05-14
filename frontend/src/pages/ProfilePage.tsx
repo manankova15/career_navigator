@@ -199,6 +199,102 @@ export default function ProfilePage({ user }: Props) {
     return m[level ?? ""] ?? 3;
   }
 
+  /** Уровень владения языком (A1..C2/native) → звёзды 1..5. */
+  function languageLevelToStars(levelNormalized: string | undefined, levelRaw: string | undefined): number {
+    const ln = (levelNormalized ?? "").toLowerCase();
+    const lr = (levelRaw ?? "").toLowerCase();
+    if (ln === "native" || lr.includes("родн")) return 5;
+    const map: Record<string, number> = { a1: 1, a2: 2, b1: 3, b2: 4, c1: 5, c2: 5 };
+    if (map[ln] !== undefined) return map[ln];
+    return 3;
+  }
+
+  /**
+   * Сопоставить специализации из hh-резюме (свободный текст) с внутренними кодами
+   * SPECIALIZATION_OPTIONS. Возвращает первый удачно матчнутый код или undefined.
+   */
+  function matchSpecialization(raw: string[] | undefined): string | undefined {
+    if (!raw || raw.length === 0) return undefined;
+
+    // Ручные синонимы для распространённых хх-формулировок.
+    // Ключ — подстрока в нижнем регистре, значение — код из SPECIALIZATION_OPTIONS.
+    const synonyms: Array<[RegExp, string]> = [
+      [/дата[-\s]?сайентист|data\s*scientist/i, "data_scientist"],
+      [/ml|machine learning|машинн(ое|ого) обучен/i, "ml_engineer"],
+      [/data\s*engineer|инженер\s+данн/i, "data_engineer"],
+      [/data\s*analyst|аналитик\s+данн/i, "data_analyst"],
+      [/бизнес[-\s]?аналитик|business\s*analyst/i, "business_analyst"],
+      [/систем(ный|ная)\s+аналитик|system\s*analyst/i, "system_analyst"],
+      [/продукт(овый)?\s+аналитик|product\s*analyst/i, "product_analyst"],
+      [/финанс(овый)?\s+аналитик|financial\s*analyst/i, "financial_analyst"],
+      [/^аналитик$|^analyst$/i, "data_analyst"],
+      [/frontend|фронтенд|фронт[-\s]?энд/i, "frontend_developer"],
+      [/backend|бэкенд|бэк[-\s]?энд|back[-\s]?end/i, "backend_developer"],
+      [/fullstack|full[-\s]?stack|фуллстек/i, "fullstack_developer"],
+      [/ios/i, "ios_developer"],
+      [/android/i, "android_developer"],
+      [/mobile|мобильн/i, "mobile_developer"],
+      [/game\s*dev|игровой\s+разработчик/i, "game_developer"],
+      [/embedded|встраиваем/i, "embedded_developer"],
+      [/devops|sre/i, "devops_engineer"],
+      [/qa\s*automation|автоматизатор\s+тест|sdet/i, "qa_automation_engineer"],
+      [/qa|тестировщик|test\s*engineer/i, "qa_engineer"],
+      [/систем(ный|ная)\s+администратор/i, "system_administrator"],
+      [/информац(ионная|ионной)\s+безопасност|security/i, "security_engineer"],
+      [/dba|администратор\s+баз/i, "database_administrator"],
+      [/программист|разработчик|developer|software\s*engineer/i, "backend_developer"],
+      [/бухгалтер|accountant/i, "accountant"],
+      [/аудитор/i, "auditor"],
+      [/экономист/i, "economist"],
+      [/performance[-\s]?marketing/i, "performance_marketer"],
+      [/контент[-\s]?маркетолог|content[-\s]?marketer/i, "content_marketer"],
+      [/smm/i, "smm_specialist"],
+      [/seo/i, "seo_specialist"],
+      [/brand\s*manager|бренд[-\s]?менеджер/i, "brand_manager"],
+      [/копирайтер|copywriter/i, "copywriter"],
+      [/sales\s*manager|менеджер\s+по\s+продажам/i, "sales_manager"],
+      [/account\s*manager|аккаунт[-\s]?менеджер/i, "account_manager"],
+      [/маркетолог|marketer/i, "internet_marketer"],
+      [/product\s*manager|продакт[-\s]?менеджер|продуктовый\s+менеджер/i, "product_manager"],
+      [/project\s*manager|проджект[-\s]?менеджер|менеджер\s+проект/i, "project_manager"],
+      [/scrum|agile\s*coach/i, "scrum_master"],
+      [/ui[\/\s-]?ux|ux[\/\s-]?ui/i, "ui_ux_designer"],
+      [/graphic\s*designer|графический\s+дизайнер/i, "graphic_designer"],
+      [/product\s*designer|продуктовый\s+дизайнер/i, "product_designer"],
+      [/motion\s*designer|motion\s*дизайнер/i, "motion_designer"],
+      [/рекрут|recruiter/i, "recruiter"],
+      [/hr/i, "hr_manager"],
+      [/юрист|lawyer/i, "lawyer"],
+      [/поддержк|support/i, "support_specialist"],
+      [/operations\s*manager|операционный\s+менеджер/i, "operations_manager"],
+      [/логист|logistic/i, "logistics_specialist"],
+      [/офис[-\s]?менеджер|office\s*manager/i, "office_manager"],
+      [/инженер|engineer/i, "engineer"],
+      [/преподаватель|учитель|teacher/i, "teacher"],
+      [/врач|doctor/i, "doctor"],
+    ];
+
+    for (const item of raw) {
+      const s = (item || "").toLowerCase().trim();
+      if (!s) continue;
+      // 1) Прямое совпадение по label.
+      const direct = SPECIALIZATION_OPTIONS.find(
+        o => o.label.toLowerCase() === s || o.value === s,
+      );
+      if (direct) return direct.value;
+      // 2) Подстрочное совпадение по label.
+      const partial = SPECIALIZATION_OPTIONS.find(
+        o => s.includes(o.label.toLowerCase()) || o.label.toLowerCase().includes(s),
+      );
+      if (partial) return partial.value;
+      // 3) Эвристические синонимы.
+      for (const [re, code] of synonyms) {
+        if (re.test(s)) return code;
+      }
+    }
+    return undefined;
+  }
+
   /** Город из PDF → код CITIES (подстрочное совпадение) */
   function matchCity(raw: string | undefined | null): string | undefined {
     if (!raw) return undefined;
@@ -230,12 +326,16 @@ export default function ProfilePage({ user }: Props) {
       const body: Record<string, unknown> = {};
 
       if (resumeApply.profile) {
+        const specializationsRaw = (job.specializations as string[]) || [];
         body.profile = {
           first_name: prof.firstName || null,
           last_name: prof.lastName || null,
           patronymic: prof.middleName || null,
           location: matchCity(prof.city) || null,
-          // specialization / target_industry — вручную: в hh-резюме свободный текст, автокодирование с потерями
+          // Специализация: из блока "Желаемая должность и зарплата" hh-резюме
+          // отображается на ближайший код SPECIALIZATION_OPTIONS.
+          specialization: matchSpecialization(specializationsRaw) || null,
+          // target_industry — оставляем на ручной выбор (в hh.ru это свободный текст).
         };
       }
 
@@ -249,13 +349,18 @@ export default function ProfilePage({ user }: Props) {
       }
 
       if (resumeApply.skills) {
+        // Берём только реальные навыки из блока "Навыки" hh-резюме.
+        // "Знание языков" — отдельный подблок и в раздел "Навыки" профиля не
+        // добавляется.
         const sl = (parsed.skillLevels as { skill: string; level: string }[]) || [];
         const names = (parsed.skills as string[]) || [];
         const levelByName = Object.fromEntries(sl.map(x => [x.skill.toLowerCase(), x.level]));
-        body.skills = names.map(name => ({
+        const skillEntries = names.map(name => ({
           skill_name: name,
           self_assessed_level: skillLevelToStars(levelByName[name.toLowerCase()]),
         }));
+
+        body.skills = skillEntries;
         body.skills_mode = "append";
       }
 
@@ -298,7 +403,7 @@ export default function ProfilePage({ user }: Props) {
           seniority: pref.seniority ?? null,
         });
       }
-      setResumeHint("Готово. Выберите специализацию и отрасль вручную, затем нажмите «Сохранить профиль».");
+      setResumeHint("Готово. Проверьте специализацию, выберите отрасль и нажмите «Сохранить профиль».");
     } catch (err: unknown) {
       setResumeErr(err instanceof Error ? err.message : "Ошибка применения");
     } finally {
@@ -320,6 +425,9 @@ export default function ProfilePage({ user }: Props) {
       const updated = await updateProfile(payload);
       setProfile(updated);
       setForm(updated);
+      window.dispatchEvent(
+        new CustomEvent("profile-updated", { detail: { full_name: updated.full_name ?? null } }),
+      );
       if (!prefsLoading) {
         const prefUpdated = await updatePreferences(prefs);
         setPrefs({
@@ -407,8 +515,8 @@ export default function ProfilePage({ user }: Props) {
 
       <SectionCard title="Импорт резюме с hh.ru (PDF)" icon="📄">
         <p style={{ color: "#64748B", fontSize: 14, marginTop: 0, marginBottom: 12 }}>
-          Загрузите PDF-версию резюме с hh.ru. После применения проверьте поля и
-          выберите специализацию и отрасль вручную, затем нажмите «Сохранить профиль».
+          Загрузите PDF-версию резюме с hh.ru. После применения проверьте поля,
+          выберите желаемую отрасль и нажмите «Сохранить профиль».
         </p>
         {resumeErr && <ErrorBanner message={resumeErr} />}
         {resumeHint && !resumeErr && (
@@ -480,7 +588,7 @@ export default function ProfilePage({ user }: Props) {
               {importingDraft ? "Применяем…" : "Применить к профилю"}
             </button>
             <p style={{ fontSize: 12, color: "#94A3B8", marginTop: 10, marginBottom: 0 }}>
-              После применения выберите специализацию и желаемую отрасль вручную и нажмите «Сохранить профиль».
+              После применения проверьте специализацию, выберите желаемую отрасль и нажмите «Сохранить профиль».
             </p>
           </div>
         )}

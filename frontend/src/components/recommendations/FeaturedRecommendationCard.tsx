@@ -73,7 +73,7 @@ export default function FeaturedRecommendationCard({ rec, vacancy, returnTo, isL
             fontWeight: 700,
           }}
         >
-          {pct}% match
+          Совпадение {pct}%
         </span>
         <button
           type="button"

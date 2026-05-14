@@ -97,10 +97,10 @@ export default function RecommendationsIntroHero({ recommendationCount, bestMatc
               maxWidth: 640,
             }}
           >
-            Мы подобрали вакансии на основе ваших навыков, интересов и карьерного направления. Следите за совпадением и закрывайте пробелы, чтобы получать еще более точные предложения.
+            Мы подобрали вакансии на основе ваших навыков, интересов и карьерного направления. Следите за совпадением и закрывайте пробелы, чтобы получать еще более точные предложения
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {["Персональный match", "Актуальные роли", "Анализ навыков"].map(label => (
+            {["Персональный подбор", "Актуальные вакансии", "Анализ навыков"].map(label => (
               <span
                 key={label}
                 style={{
@@ -135,7 +135,7 @@ export default function RecommendationsIntroHero({ recommendationCount, bestMatc
           }}
         >
           <div style={{ fontSize: 13, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            Ваш карьерный фокус
+            Результаты подбора рекомендаций
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             {showTopMatch && (
@@ -147,7 +147,7 @@ export default function RecommendationsIntroHero({ recommendationCount, bestMatc
                   padding: 16,
                 }}
               >
-                <div style={{ fontSize: 13, color: "#64748B", fontWeight: 500, marginBottom: 6 }}>Топ match</div>
+                <div style={{ fontSize: 13, color: "#64748B", fontWeight: 500, marginBottom: 6 }}>Лучшее совпадение</div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: "#0F172A" }}>
                   {loading ? "—" : `${bestMatchPercent}%`}
                 </div>
@@ -162,7 +162,7 @@ export default function RecommendationsIntroHero({ recommendationCount, bestMatc
                 gridColumn: showTopMatch ? undefined : "1 / -1",
               }}
             >
-              <div style={{ fontSize: 13, color: "#64748B", fontWeight: 500, marginBottom: 6 }}>Рекомендаций</div>
+              <div style={{ fontSize: 13, color: "#64748B", fontWeight: 500, marginBottom: 6 }}>Количество рекомендаций</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#0F172A" }}>{loading ? "—" : recommendationCount}</div>
             </div>
           </div>

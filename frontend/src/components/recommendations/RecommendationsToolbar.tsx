@@ -2,22 +2,13 @@ import React from "react";
 import { QuickRecFilter } from "./recommendationUtils";
 import { IconRefreshCw } from "./RecIcons";
 
-const PILLS: { id: QuickRecFilter; label: string }[] = [
-  { id: "all", label: "Все" },
-  { id: "best_match", label: "Лучшее совпадение" },
-  { id: "python", label: "Python" },
-  { id: "backend", label: "Backend" },
-  { id: "remote", label: "Удаленно" },
-  { id: "high_match", label: "Высокий match" },
-];
-
 export type RecSortMode = "match" | "feed";
 
 interface Props {
-  activeFilter: QuickRecFilter;
-  onFilterChange: (f: QuickRecFilter) => void;
-  sortMode: RecSortMode;
-  onSortModeChange: (m: RecSortMode) => void;
+  activeFilter?: QuickRecFilter;
+  onFilterChange?: (f: QuickRecFilter) => void;
+  sortMode?: RecSortMode;
+  onSortModeChange?: (m: RecSortMode) => void;
   onRefresh: () => void;
   refreshing: boolean;
   loading: boolean;
@@ -25,10 +16,6 @@ interface Props {
 }
 
 export default function RecommendationsToolbar({
-  activeFilter,
-  onFilterChange,
-  sortMode,
-  onSortModeChange,
   onRefresh,
   refreshing,
   loading,
@@ -55,80 +42,7 @@ export default function RecommendationsToolbar({
         gap: 16,
       }}
     >
-      <div className="recommendations-toolbar-pills" style={{ display: "flex", flexWrap: "wrap", gap: 8, flex: 1, minWidth: 200 }}>
-        {PILLS.map(p => {
-          const active = activeFilter === p.id;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              disabled={disabled}
-              onClick={() => onFilterChange(p.id)}
-              style={{
-                background: active ? "#EEF2FF" : "#FFFFFF",
-                border: `1px solid ${active ? "#C7D2FE" : "#E6EAF2"}`,
-                color: active ? "#4338CA" : "#475569",
-                borderRadius: 999,
-                padding: "10px 14px",
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: disabled ? "not-allowed" : "pointer",
-                opacity: disabled ? 0.5 : 1,
-                transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
-              }}
-              onMouseEnter={e => {
-                if (disabled || active) return;
-                e.currentTarget.style.background = "#F8FAFF";
-              }}
-              onMouseLeave={e => {
-                if (active) return;
-                e.currentTarget.style.background = "#FFFFFF";
-              }}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="recommendations-toolbar-actions" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
-        <label
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            background: "#FFFFFF",
-            border: "1px solid #E6EAF2",
-            borderRadius: 16,
-            height: 44,
-            padding: "0 14px",
-            fontSize: 14,
-            fontWeight: 500,
-            color: "#475569",
-          }}
-        >
-          <span style={{ color: "#94A3B8", whiteSpace: "nowrap" }}>Сортировка:</span>
-          <select
-            disabled={disabled}
-            value={sortMode}
-            aria-label="Сортировка рекомендаций"
-            onChange={e => onSortModeChange(e.target.value as RecSortMode)}
-            style={{
-              border: "none",
-              background: "transparent",
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#0F172A",
-              cursor: disabled ? "not-allowed" : "pointer",
-              paddingRight: 4,
-              outline: "none",
-            }}
-          >
-            <option value="match">по совпадению</option>
-            <option value="feed">как в ленте</option>
-          </select>
-        </label>
-
+      <div className="recommendations-toolbar-actions" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, marginLeft: "auto" }}>
         <button
           type="button"
           onClick={onRefresh}

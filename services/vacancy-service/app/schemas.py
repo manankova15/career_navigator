@@ -57,6 +57,14 @@ class CanonicalVacancyIn(BaseModel):
     expires_at: datetime | None = None
 
 
+class CanonicalVacancyBatchIn(BaseModel):
+    items: list[CanonicalVacancyIn] = Field(default_factory=list, max_length=500)
+
+
+class CanonicalVacancyBatchOut(BaseModel):
+    upserted: int
+
+
 class CanonicalVacancyOut(BaseModel):
     id: UUID
     source_id: UUID

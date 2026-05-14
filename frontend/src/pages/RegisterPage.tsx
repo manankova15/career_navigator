@@ -75,7 +75,7 @@ export default function RegisterPage({ onLogin }: Props) {
             Создать аккаунт
           </h1>
           <p style={{ color: "#64748B", marginBottom: 32, marginTop: 0, fontSize: 15 }}>
-            Бесплатно. Без кредитной карты.
+            Создайте аккаунт, чтобы начать пользоваться платформой.
           </p>
 
           {error && <ErrorBanner message={error} />}

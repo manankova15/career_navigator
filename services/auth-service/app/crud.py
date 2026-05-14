@@ -39,6 +39,16 @@ def get_role_by_name(db: Session, name: str) -> Role | None:
     return db.query(Role).filter(Role.name == name).first()
 
 
+def reset_password_for_email(db: Session, email: str, new_password: str) -> bool:
+    """Replace the password_hash for the email identity. Returns True on success."""
+    identity = get_identity_by_email(db, email)
+    if not identity:
+        return False
+    identity.password_hash = hash_password(new_password)
+    db.commit()
+    return True
+
+
 def create_user(db: Session, full_name: str, email: str, password: str) -> User:
     user = User(full_name=full_name)
     db.add(user)

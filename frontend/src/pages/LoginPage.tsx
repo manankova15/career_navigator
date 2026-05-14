@@ -65,7 +65,7 @@ export default function LoginPage({ onLogin }: Props) {
             <div style={{ marginBottom: 24 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
                 <label className="form-label" style={{ marginBottom: 0 }}>Пароль</label>
-                <a href="#" style={{ fontSize: 13, color: "#3B5BDB", textDecoration: "none" }}>Забыли пароль?</a>
+                <Link to="/forgot-password" style={{ fontSize: 13, color: "#3B5BDB", textDecoration: "none" }}>Забыли пароль?</Link>
               </div>
               <input
                 className="form-input"

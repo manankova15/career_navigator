@@ -3,6 +3,7 @@ import re
 from uuid import UUID
 
 from sqlalchemy import Integer, String, bindparam, case, func, literal, or_, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
 from sqlalchemy.orm import Session
 
@@ -134,6 +135,34 @@ def upsert_canonical(db: Session, data: CanonicalVacancyIn) -> tuple[CanonicalVa
     db.commit()
     db.refresh(vacancy)
     return vacancy, True
+
+
+def bulk_upsert_canonical(db: Session, items: list[CanonicalVacancyIn]) -> int:
+    """
+    Fast bulk upsert for reseed scripts.
+
+    The regular per-vacancy upsert_canonical() is intentionally kept unchanged for
+    admin/manual ingestion. This function avoids thousands of HTTP requests and
+    thousands of commit/refresh cycles during reseed.
+    """
+    if not items:
+        return 0
+
+    payloads = [_enrich_salary_fields(item.model_dump()) for item in items]
+    table = CanonicalVacancy.__table__
+    insert_stmt = pg_insert(table).values(payloads)
+
+    updatable_keys = set(payloads[0].keys()) - {"id", "source_id", "external_id", "created_at"}
+    update_values = {key: getattr(insert_stmt.excluded, key) for key in updatable_keys}
+    update_values["updated_at"] = func.now()
+
+    stmt = insert_stmt.on_conflict_do_update(
+        constraint="uq_canonical_source_external",
+        set_=update_values,
+    )
+    db.execute(stmt)
+    db.commit()
+    return len(payloads)
 
 
 def get_vacancy(db: Session, vacancy_id: UUID) -> CanonicalVacancy | None:

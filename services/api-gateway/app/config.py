@@ -19,6 +19,8 @@ class GatewaySettings(BaseSettings):
     # Rate limiting: max requests per window per client key
     rate_limit_requests: int = 600
     rate_limit_window_seconds: int = 60
+    rate_limit_public_multiplier: int = 20
+    rate_limit_auth_multiplier: int = 5
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 

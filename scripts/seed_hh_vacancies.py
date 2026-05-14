@@ -210,53 +210,62 @@ def ensure_source_exists():
     return FAKE_SOURCE_ID
 
 
-# Таймаут POST /internal/canonical (синхронный дедуп может быть долгим)
-POST_CANONICAL_TIMEOUT = float(os.getenv("POST_CANONICAL_TIMEOUT", "30"))
+# Быстрый batch POST для массового reseed. Одиночный /internal/canonical не трогаем:
+# он остается для админской дозагрузки и ручных сценариев.
+POST_CANONICAL_TIMEOUT = float(os.getenv("POST_CANONICAL_TIMEOUT", "60"))
 POST_CANONICAL_RETRIES = int(os.getenv("POST_CANONICAL_RETRIES", "3"))
+POST_CANONICAL_BATCH_SIZE = int(os.getenv("POST_CANONICAL_BATCH_SIZE", "100"))
 
 
-def post_canonical(vacancy_data: dict) -> bool:
-    url = f"{VACANCY_SERVICE_URL}/internal/canonical"
+def post_canonical_batch(vacancies: list[dict]) -> int:
+    if not vacancies:
+        return 0
+
+    url = f"{VACANCY_SERVICE_URL}/internal/canonical/batch"
     delay = 2.0
+    payload = {"items": vacancies}
     for attempt in range(1, POST_CANONICAL_RETRIES + 1):
         try:
             resp = requests.post(
                 url,
-                json=vacancy_data,
+                json=payload,
                 headers=INTERNAL_HEADERS,
                 timeout=POST_CANONICAL_TIMEOUT,
             )
         except (requests.Timeout, requests.ConnectionError) as e:
-            # Таймаут vacancy-service — backoff, не рвём весь seed
             if attempt >= POST_CANONICAL_RETRIES:
                 print(
                     f"  ⚠ vacancy-service не отвечает после {attempt} попыток "
-                    f"({type(e).__name__}: {e}). Пропускаем вакансию."
+                    f"({type(e).__name__}: {e}). Пачка из {len(vacancies)} вакансий не сохранена."
                 )
-                return False
+                return 0
             print(
-                f"  … vacancy-service таймаут/недоступен (попытка {attempt}/"
-                f"{POST_CANONICAL_RETRIES}, {type(e).__name__}), повтор через {delay:.0f}s"
+                f"  … vacancy-service таймаут/недоступен на batch POST "
+                f"(попытка {attempt}/{POST_CANONICAL_RETRIES}, {type(e).__name__}), "
+                f"повтор через {delay:.0f}s"
             )
             time.sleep(delay)
             delay *= 2
             continue
+
         if resp.status_code in (200, 201):
-            return True
-        # 5xx — ретрай; 4xx — терминально
+            try:
+                return int(resp.json().get("upserted", len(vacancies)))
+            except Exception:
+                return len(vacancies)
+
         if 500 <= resp.status_code < 600 and attempt < POST_CANONICAL_RETRIES:
             print(
-                f"  … vacancy-service {resp.status_code} (попытка {attempt}/"
-                f"{POST_CANONICAL_RETRIES}), повтор через {delay:.0f}s"
+                f"  … vacancy-service {resp.status_code} на batch POST "
+                f"(попытка {attempt}/{POST_CANONICAL_RETRIES}), повтор через {delay:.0f}s"
             )
             time.sleep(delay)
             delay *= 2
             continue
-        print(
-            f"  ⚠ Ошибка добавления вакансии: {resp.status_code} {resp.text[:200]}"
-        )
-        return False
-    return False
+
+        print(f"  ⚠ Ошибка batch-добавления: {resp.status_code} {resp.text[:300]}")
+        return 0
+    return 0
 
 
 def run():
@@ -265,6 +274,8 @@ def run():
     print(f"[hh-seed] Цель: загрузить {TARGET_COUNT} вакансий из HH.ru")
 
     loaded = 0
+    parsed = 0
+    buffer: list[dict] = []
     page = 0
     per_page = 20
 
@@ -387,15 +398,23 @@ def run():
                 "source_name": "hh",
             }
 
-            ok = post_canonical(vacancy_data)
-            if ok:
-                loaded += 1
-                print(f"  [{loaded}/{TARGET_COUNT}] ✓ {title[:60]} @ {company[:30]}")
+            buffer.append(vacancy_data)
+            parsed += 1
+            print(f"  [{parsed}/{TARGET_COUNT}] подготовлено: {title[:60]} @ {company[:30]}")
 
-            time.sleep(0.2)
+            if len(buffer) >= POST_CANONICAL_BATCH_SIZE or parsed >= TARGET_COUNT:
+                saved = post_canonical_batch(buffer)
+                loaded += saved
+                print(f"  ↳ сохранено пачкой: +{saved}, всего сохранено: {loaded}")
+                buffer.clear()
 
         page += 1
         time.sleep(HH_PAGE_DELAY_SEC)
+
+    if buffer:
+        saved = post_canonical_batch(buffer)
+        loaded += saved
+        print(f"  ↳ сохранено финальной пачкой: +{saved}, всего сохранено: {loaded}")
 
     print(f"\n[hh-seed] Готово! Загружено вакансий: {loaded}")
 

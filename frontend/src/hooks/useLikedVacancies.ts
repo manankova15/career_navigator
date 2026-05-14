@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { Vacancy } from "../api/vacancies";
+import { Vacancy, getVacancy } from "../api/vacancies";
 import { getToken } from "../api/client";
 import { likeVacancyOnServer, listMyLikes, unlikeVacancyOnServer } from "../api/recommendations";
 import {
@@ -34,10 +34,29 @@ export function useLikedVacancies() {
   useEffect(() => {
     if (!getToken()) return;
     listMyLikes()
-      .then(rows => {
-        const mapped = rows.map(likedDtoToVacancy);
-        setLikedVacancies(mapped);
-        setLikedVacanciesState(mapped);
+      .then(async rows => {
+        // Build base list from DTO, then enrich with full vacancy data (company, salary, etc.)
+        const localCache = getLikedVacancies();
+        const cacheById = new Map(localCache.map(v => [v.id, v]));
+
+        const enriched = await Promise.all(
+          rows.map(async row => {
+            const fallback = likedDtoToVacancy(row);
+            const cached = cacheById.get(row.vacancy_id);
+            if (cached && cached.company && cached.company !== "—") {
+              return { ...fallback, ...cached };
+            }
+            try {
+              const full = await getVacancy(row.vacancy_id);
+              return full;
+            } catch {
+              return cached ?? fallback;
+            }
+          }),
+        );
+
+        setLikedVacancies(enriched);
+        setLikedVacanciesState(enriched);
       })
       .catch(() => {
         /* offline or no likes table yet — keep localStorage */

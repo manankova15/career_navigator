@@ -329,15 +329,252 @@ def parse_experience(block: str) -> list[dict[str, Any]]:
     return experiences
 
 
+# Phrases that look like skill names but actually contain inner spaces.
+# Used to glue tokens back together when splitting an ambiguous space-separated
+# skills list ("Навыки" subblock from hh.ru PDF). Lowercase keys; longer phrases
+# must precede shorter ones that are prefixes of them.
+_KNOWN_MULTIWORD_SKILLS: tuple[str, ...] = (
+    "ms project",
+    "ms excel",
+    "ms word",
+    "ms office",
+    "google docs",
+    "google sheets",
+    "google analytics",
+    "ms power bi",
+    "power bi",
+    "power point",
+    "powerpoint",
+    "adobe photoshop",
+    "adobe illustrator",
+    "adobe premiere",
+    "after effects",
+    "1c",
+    "1с",
+    "rest api",
+    "soap api",
+    "graphql api",
+    "data science",
+    "data analysis",
+    "data engineering",
+    "machine learning",
+    "deep learning",
+    "computer vision",
+    "natural language processing",
+    "nlp",
+    "ci/cd",
+    "ci cd",
+    "github actions",
+    "gitlab ci",
+    "amazon web services",
+    "google cloud",
+    "google cloud platform",
+    "ведение переговоров",
+    "деловое общение",
+    "деловая переписка",
+    "деловая корреспонденция",
+    "грамотная речь",
+    "грамотная письменная речь",
+    "грамотная устная речь",
+    "управление проектами",
+    "управление командой",
+    "управление персоналом",
+    "управление продуктом",
+    "управление временем",
+    "тайм-менеджмент",
+    "проектный менеджмент",
+    "продуктовый менеджмент",
+    "пользователь пк",
+    "уверенный пользователь пк",
+    "опытный пользователь пк",
+    "работа в команде",
+    "командная работа",
+    "работа с большим объемом информации",
+    "работа с большим объёмом информации",
+    "поиск информации в интернете",
+    "поиск информации",
+    "анализ данных",
+    "анализ информации",
+    "сбор данных",
+    "сбор и анализ информации",
+    "обработка данных",
+    "визуализация данных",
+    "статистический анализ",
+    "машинное обучение",
+    "глубокое обучение",
+    "компьютерное зрение",
+    "обработка естественного языка",
+    "большие данные",
+    "интеллектуальный анализ данных",
+    "искусственный интеллект",
+    "разработка по",
+    "разработка программного обеспечения",
+    "тестирование по",
+    "ручное тестирование",
+    "автоматизированное тестирование",
+    "функциональное тестирование",
+    "нагрузочное тестирование",
+    "frontend разработка",
+    "backend разработка",
+    "веб-разработка",
+    "веб разработка",
+    "разработка веб-приложений",
+    "разработка мобильных приложений",
+    "мобильная разработка",
+    "продуктовая аналитика",
+    "бизнес анализ",
+    "бизнес-анализ",
+    "финансовый анализ",
+    "финансовая отчетность",
+    "финансовая отчётность",
+    "бухгалтерский учет",
+    "бухгалтерский учёт",
+    "налоговый учет",
+    "налоговый учёт",
+    "управленческий учет",
+    "управленческий учёт",
+    "клиентский сервис",
+    "клиентоориентированность",
+    "холодные звонки",
+    "активные продажи",
+    "b2b продажи",
+    "b2c продажи",
+    "прямые продажи",
+    "техническая поддержка",
+    "пользовательская поддержка",
+    "ведение документации",
+    "написание документации",
+    "техническая документация",
+    "проектная документация",
+    "контроль качества",
+    "обеспечение качества",
+    "стрессоустойчивость",
+    "критическое мышление",
+    "аналитическое мышление",
+    "системное мышление",
+    "английский язык",
+    "немецкий язык",
+    "французский язык",
+    "испанский язык",
+    "китайский язык",
+    "русский язык",
+)
+
+
+def _split_skill_tokens(line: str) -> list[str]:
+    """
+    Split an ambiguous space-separated hh.ru skills line into individual skills.
+
+    The "Навыки" subblock of hh.ru PDF can contain skills separated by single
+    spaces while individual skills may themselves contain spaces (e.g.
+    "MS Excel", "Машинное обучение", "ведение переговоров"). Splitting only on
+    whitespace would shred multi-word skills; gluing on whitespace would merge
+    everything. We therefore use two heuristics:
+
+      1. Recognise known multi-word skill phrases verbatim.
+      2. Treat a capital letter at the start of a new token (Latin OR Cyrillic)
+         as the most likely beginning of the next skill.
+
+    Tokens that don't trigger a new skill are appended to the current one.
+    """
+    raw = re.sub(r"\s+", " ", line.strip())
+    if not raw:
+        return []
+
+    # First: peel off known multi-word skill phrases greedily.
+    found: list[str] = []
+    remaining = raw
+    used_intervals: list[tuple[int, int]] = []
+
+    low = remaining.lower()
+    # Sort known phrases by length desc so longer ones win.
+    for phrase in sorted(_KNOWN_MULTIWORD_SKILLS, key=len, reverse=True):
+        start = 0
+        while True:
+            idx = low.find(phrase, start)
+            if idx < 0:
+                break
+            end = idx + len(phrase)
+            # Must be on word boundaries.
+            left_ok = idx == 0 or not low[idx - 1].isalnum()
+            right_ok = end >= len(low) or not low[end].isalnum()
+            # And must not overlap an already-used interval.
+            overlap = any(not (end <= s or idx >= e) for s, e in used_intervals)
+            if left_ok and right_ok and not overlap:
+                used_intervals.append((idx, end))
+                found.append(remaining[idx:end])
+                start = end
+            else:
+                start = idx + 1
+
+    # Now build a list of (position, text, is_known) for every chunk.
+    used_intervals.sort()
+    chunks: list[tuple[int, str, bool]] = []
+    cursor = 0
+    for s, e in used_intervals:
+        if cursor < s:
+            chunks.append((cursor, remaining[cursor:s], False))
+        chunks.append((s, remaining[s:e], True))
+        cursor = e
+    if cursor < len(remaining):
+        chunks.append((cursor, remaining[cursor:], False))
+
+    # Now split the unknown chunks by capital-letter transitions.
+    results: list[str] = []
+    for _pos, text, is_known in chunks:
+        text = text.strip()
+        if not text:
+            continue
+        if is_known:
+            results.append(text)
+            continue
+        # Split on capital letter boundaries: a token starts at the beginning
+        # or after a space when the first letter is upper-case.
+        tokens = text.split(" ")
+        current: list[str] = []
+        for tok in tokens:
+            if not tok:
+                continue
+            starts_new = False
+            first = tok[0]
+            if first.isupper() and current:
+                # Capital letter while we have an accumulator => new skill,
+                # unless previous accumulator ends with a separator-y char
+                # (parenthesis, slash, dash). Also don't break tiny known
+                # connectives like "и", "or", "and" — but those won't be
+                # uppercase, so this naive rule is okay.
+                starts_new = True
+            elif first.isdigit() and current:
+                # A number-led token usually starts a new skill ("1С").
+                starts_new = True
+            if starts_new:
+                results.append(" ".join(current).strip())
+                current = [tok]
+            else:
+                current.append(tok)
+        if current:
+            results.append(" ".join(current).strip())
+
+    return [r for r in results if r]
+
+
 def parse_skills(block: str, levels_block: str) -> tuple[list[str], list[dict[str, str]]]:
     skills: list[str] = []
     skill_levels: list[dict[str, str]] = []
-    text = (block or "").replace("\n", " ")
-    if text:
-        for part in re.split(r"[,;•·]|(?:\s{2,})", text):
-            s = part.strip()
-            if 1 < len(s) < 80:
-                skills.append(s)
+    seen: set[str] = set()
+
+    def _add(name: str) -> None:
+        s = name.strip(" \t-—–•·\u2022")
+        if not (1 < len(s) < 80):
+            return
+        key = s.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        skills.append(s)
+
+    # 1) "Уровни владения навыками" is the authoritative source — each skill is
+    #    on its own line. Use it whenever present.
     level_map = {
         "продвинут": "advanced",
         "средн": "intermediate",
@@ -359,8 +596,27 @@ def parse_skills(block: str, levels_block: str) -> tuple[list[str], list[dict[st
                 continue
             if ln and not ln.lower().startswith("уровень") and len(ln) < 100:
                 skill_levels.append({"skill": ln, "level": current})
-                if ln not in skills:
-                    skills.append(ln)
+                _add(ln)
+
+    # 2) "Навыки" subblock — fall back to splitting if the levels block was
+    #    missing or sparse. Try newlines / commas / bullets / multi-space first,
+    #    and only invoke the space-and-capital heuristic for "single line of
+    #    many skills glued together".
+    text = (block or "").strip()
+    if text:
+        # First pass: obvious delimiters.
+        primary_parts = [p.strip() for p in re.split(r"[\n,;•·]|(?:\s{2,})", text) if p.strip()]
+        for part in primary_parts:
+            # If this fragment is itself a long line with many words and no
+            # delimiters, it is probably an hh.ru space-glued list. Try
+            # heuristic splitting.
+            word_count = len(part.split())
+            if word_count >= 4 and len(part) > 30:
+                for sub in _split_skill_tokens(part):
+                    _add(sub)
+            else:
+                _add(part)
+
     return skills, skill_levels
 
 
@@ -410,26 +666,74 @@ def parse_courses(block: str) -> list[dict[str, Any]]:
     return items
 
 
+def _normalize_lang_level(level_raw: str) -> str:
+    lr = level_raw.lower().strip()
+    if "родн" in lr or "native" in lr:
+        return "native"
+    m = re.match(r"^([abc][12])\b", lr)
+    if m:
+        return m.group(1)
+    return lr
+
+
+def _looks_like_lang_level(text: str) -> bool:
+    t = text.strip().lower()
+    if not t or len(t) > 80:
+        return False
+    if re.search(r"\b[abc][12]\b", t):
+        return True
+    if "родн" in t or "native" in t:
+        return True
+    keywords = (
+        "свободн", "уровень", "разговорн", "технич", "базов",
+        "начальн", "средн", "продвинут", "fluent", "beginner",
+        "intermediate", "advanced", "elementary", "upper",
+    )
+    return any(k in t for k in keywords)
+
+
 def parse_languages(block: str) -> list[dict[str, Any]]:
     res: list[dict[str, Any]] = []
     if not block.strip():
         return res
-    for line in block.split("\n"):
-        line = line.strip()
-        if not line or "—" not in line and "-" not in line:
+    lines = [ln.strip() for ln in block.split("\n")]
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line:
+            i += 1
             continue
-        if "—" in line:
-            name, level = line.split("—", 1)
-        else:
-            name, level = line.split("-", 1)
-        name, level = name.strip(), level.strip()
-        lr = level.lower()
-        norm = lr
-        if "родн" in lr:
-            norm = "native"
-        elif re.match(r"^[abc][12]$", lr):
-            norm = lr
-        res.append({"name": name, "levelRaw": level, "levelNormalized": norm})
+        if "—" in line or "-" in line:
+            if "—" in line:
+                name, level = line.split("—", 1)
+            else:
+                name, level = line.split("-", 1)
+            name, level = name.strip(), level.strip()
+            if name and level:
+                res.append(
+                    {
+                        "name": name,
+                        "levelRaw": level,
+                        "levelNormalized": _normalize_lang_level(level),
+                    }
+                )
+            i += 1
+            continue
+        # Try two-line pattern: "<Language>\n<Level>"
+        if i + 1 < len(lines) and lines[i + 1] and _looks_like_lang_level(lines[i + 1]):
+            name = line
+            level = lines[i + 1]
+            if 1 < len(name) < 60 and not _looks_like_lang_level(name):
+                res.append(
+                    {
+                        "name": name,
+                        "levelRaw": level,
+                        "levelNormalized": _normalize_lang_level(level),
+                    }
+                )
+                i += 2
+                continue
+        i += 1
     return res
 
 
@@ -454,6 +758,36 @@ def parse_resume_updated(full_text: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+def _strip_languages_subblock(skills_block: str) -> str:
+    """Удаляет внутренний подблок «Знание языков» из текста секции «Навыки».
+
+    В резюме с hh.ru блок «Навыки» содержит два подблока: «Знание языков»
+    (1-й) и «Навыки» (2-й). Если splitter секций не отделил их (например,
+    из-за вариаций заголовка), убираем подблок языков вручную: всё, что
+    идёт от строки-заголовка «Знание языков» до следующего заголовка
+    подблока «Навыки» или до конца блока — выкидываем.
+    """
+    if not skills_block:
+        return skills_block
+    lines = skills_block.split("\n")
+    out: list[str] = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        low = stripped.lower()
+        if re.fullmatch(r"знание\s+языков\s*:?", low):
+            skipping = True
+            continue
+        if skipping:
+            # Заходим во второй подблок «Навыки» — снова собираем содержимое.
+            if re.fullmatch(r"навыки\s*:?", low):
+                skipping = False
+                continue
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def build_parsed_document(
     normalized_text: str, sections: dict[str, str], is_hh_resume: bool, confidence: float
 ) -> dict[str, Any]:
@@ -462,16 +796,24 @@ def build_parsed_document(
     profile.update(parse_contacts(sections.get("contacts", "")))
     profile.update(parse_citizenship_block(sections.get("citizenship", "")))
     job = parse_desired_job(full, sections)
+    # Из подблока «Навыки» исключаем вложенный «Знание языков»,
+    # чтобы языки не попадали в список навыков.
+    raw_skills_block = _strip_languages_subblock(sections.get("skills", ""))
     skills_text = "\n".join(
         filter(
             None,
             [
-                sections.get("skills", ""),
+                raw_skills_block,
                 sections.get("skills_key", ""),
             ],
         )
     )
     skills, skill_levels = parse_skills(skills_text, sections.get("skill_levels", ""))
+    # Фильтрация по канонической базе навыков (case-insensitive).
+    from .skills_base import filter_skills_against_base, normalized_skill_set
+    base = normalized_skill_set()
+    skills = filter_skills_against_base(skills, base)
+    skill_levels = [sl for sl in skill_levels if (sl.get("skill") or "").strip().lower() in base]
     exp = parse_experience(sections.get("experience", ""))
     edu_blocks = "\n\n".join(
         filter(None, [sections.get("education", ""), sections.get("education_higher", "")])

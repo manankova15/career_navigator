@@ -15,6 +15,14 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+
+
 class TelegramLinkRequest(BaseModel):
     telegram_id: str
     telegram_username: str | None = None

@@ -7,17 +7,19 @@ from .config import settings
 _windows: dict[str, deque] = defaultdict(deque)
 
 
-def check_rate_limit(client_ip: str) -> bool:
+def check_rate_limit(client_key: str, *, limit: int | None = None, window_seconds: int | None = None) -> bool:
     """Return True if request is allowed, False if rate limit exceeded."""
     now = time.time()
-    window = _windows[client_ip]
+    max_requests = limit if limit is not None else settings.rate_limit_requests
+    window_size = window_seconds if window_seconds is not None else settings.rate_limit_window_seconds
+    window = _windows[client_key]
 
     # Drop timestamps outside the window
-    cutoff = now - settings.rate_limit_window_seconds
+    cutoff = now - window_size
     while window and window[0] < cutoff:
         window.popleft()
 
-    if len(window) >= settings.rate_limit_requests:
+    if len(window) >= max_requests:
         return False
 
     window.append(now)

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { MeResponse } from "../api/auth";
+import { getProfile } from "../api/profile";
 
 interface Props { user: MeResponse | null; onLogout: () => void; children: React.ReactNode; }
 
@@ -32,6 +33,7 @@ export default function Layout({ user, onLogout, children }: Props) {
   const navigate = useNavigate();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [profileFullName, setProfileFullName] = useState<string | null>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -39,9 +41,28 @@ export default function Layout({ user, onLogout, children }: Props) {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      setProfileFullName(null);
+      return;
+    }
+    getProfile()
+      .then(p => setProfileFullName(p.full_name ?? null))
+      .catch(() => setProfileFullName(null));
+  }, [user?.user_id]);
+
+  useEffect(() => {
+    const onProfileUpdated = (event: Event) => {
+      const fullName = (event as CustomEvent<{ full_name?: string | null }>).detail?.full_name;
+      setProfileFullName(fullName ?? null);
+    };
+    window.addEventListener("profile-updated", onProfileUpdated);
+    return () => window.removeEventListener("profile-updated", onProfileUpdated);
+  }, []);
+
   function handleLogout() { onLogout(); navigate("/login"); }
 
-  const displayName = user?.full_name ?? user?.email?.split("@")[0] ?? "Профиль";
+  const displayName = profileFullName ?? user?.full_name ?? user?.email?.split("@")[0] ?? "Профиль";
   const initials = (() => {
     const parts = displayName.trim().split(/\s+/);
     return parts.length >= 2
@@ -123,7 +144,7 @@ export default function Layout({ user, onLogout, children }: Props) {
                     padding: "6px",
                   }} role="menu">
                     <div style={{ padding: "10px 12px", borderBottom: "1px solid #F1F5F9", marginBottom: 4 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A" }}>{user?.full_name}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A" }}>{displayName}</div>
                       <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 1 }}>{user?.email}</div>
                     </div>
                     <NavLink to="/profile" onClick={() => setUserMenuOpen(false)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", color: "#334155", textDecoration: "none", borderRadius: 8, fontSize: 14, transition: "background 0.2s ease" }}

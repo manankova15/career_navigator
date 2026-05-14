@@ -147,41 +147,13 @@ export default function VacanciesIntroHero({ totalCount }: VacanciesIntroHeroPro
             }}
           >
             <div style={{ fontSize: 13, fontWeight: 500, color: "#64748B" }}>
-              Сегодня в фокусе
+              Сегодня
             </div>
             <div style={{ fontSize: 42, fontWeight: 700, lineHeight: 1, color: "#0F172A", letterSpacing: "-0.02em" }}>
               {displayTotal}
             </div>
             <div style={{ fontSize: 15, color: "#64748B", lineHeight: 1.4 }}>
-              актуальных вакансий в вашей карьерной воронке
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              <span
-                style={{
-                  background: "#F8FAFF",
-                  border: "1px solid #E6EAF2",
-                  color: "#475569",
-                  borderRadius: 999,
-                  padding: "6px 12px",
-                  fontSize: 13,
-                  fontWeight: 500,
-                }}
-              >
-                Frontend / Backend
-              </span>
-              <span
-                style={{
-                  background: "#F8FAFF",
-                  border: "1px solid #E6EAF2",
-                  color: "#475569",
-                  borderRadius: 999,
-                  padding: "6px 12px",
-                  fontSize: 13,
-                  fontWeight: 500,
-                }}
-              >
-                Middle / Senior
-              </span>
+              актуальных вакансий
             </div>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-end" }}>

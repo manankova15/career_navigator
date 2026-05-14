@@ -46,11 +46,6 @@ export default function RecommendationCard({
   const cardBg = nth3 ? "linear-gradient(180deg, #F8FAFF 0%, #FFFFFF 28%)" : "#FFFFFF";
   const borderLeft = nth5 ? `3px solid ${matchAccentBorderColor(pct)}` : undefined;
 
-  const reasonsExtra = (rec as unknown as { reasons?: unknown }).reasons;
-  const firstReason =
-    Array.isArray(reasonsExtra) && typeof reasonsExtra[0] === "string" ? reasonsExtra[0] : null;
-  const reasonLine = rec.reason || firstReason || null;
-
   return (
     <Link
       to={`/vacancies/${vacancy.id}`}
@@ -135,7 +130,7 @@ export default function RecommendationCard({
             marginBottom: 14,
           }}
         >
-          {pct}% match
+          Совпадение {pct}%
         </span>
 
         <h3
@@ -164,7 +159,7 @@ export default function RecommendationCard({
         <div style={{ marginTop: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              {reasonLine ? "Подбор на основе навыков" : "Совпадение с вашим профилем"}
+              Совпадение с вашим профилем
             </span>
             <span style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{pct}%</span>
           </div>
@@ -179,9 +174,6 @@ export default function RecommendationCard({
               }}
             />
           </div>
-          {reasonLine && (
-            <p style={{ fontSize: 13, color: "#64748B", lineHeight: 1.45, margin: "10px 0 0" }}>{reasonLine}</p>
-          )}
         </div>
       </div>
 

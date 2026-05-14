@@ -6,8 +6,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-career_navigator}
       POSTGRES_USER: ${POSTGRES_USER:-career_navigator}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
-    ports:
-      - "5432:5432"
+    # ports:
+    #   - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -18,8 +18,8 @@ services:
 
   redis:
     image: redis:7
-    ports:
-      - "6379:6379"
+    # ports:
+    #   - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -28,15 +28,15 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+    # ports:
+    #   - "5672:5672"
+    #   - "15672:15672"
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
-    ports:
-      - "8123:8123"
-      - "9000:9000"
+    # ports:
+    #   - "8123:8123"
+    #   - "9000:9000"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
 
@@ -46,9 +46,9 @@ services:
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
-    ports:
-      - "9002:9000"
-      - "9001:9001"
+    # ports:
+    #   - "9002:9000"
+    #   - "9001:9001"
     volumes:
       - minio-data:/data
 
@@ -175,8 +175,10 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:8008
       ANALYTICS_SERVICE_URL: http://analytics-service:8011
       ADMIN_SERVICE_URL: http://admin-service:8010
-      RATE_LIMIT_REQUESTS: "100"
+      RATE_LIMIT_REQUESTS: "600"
       RATE_LIMIT_WINDOW_SECONDS: "60"
+      RATE_LIMIT_PUBLIC_MULTIPLIER: "20"
+      RATE_LIMIT_AUTH_MULTIPLIER: "5"
     depends_on:
       - auth-service
       - profile-service

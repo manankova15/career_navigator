@@ -1,3 +1,7 @@
+import logging
+import secrets
+import string
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -11,12 +15,16 @@ from ..crud import (
     get_user_primary_email,
     get_user_roles,
     link_telegram,
+    reset_password_for_email,
     revoke_refresh_token,
 )
 from ..database import get_db
 from ..deps import get_current_user
+from ..email_sender import build_password_reset_email, send_email
 from ..models import User
 from ..schemas import (
+    ForgotPasswordRequest,
+    ForgotPasswordResponse,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
@@ -26,6 +34,14 @@ from ..schemas import (
     UserOut,
 )
 from ..security import create_access_token, verify_password
+
+logger = logging.getLogger(__name__)
+
+
+def _generate_temp_password(length: int = 12) -> str:
+    """Generate a random URL-safe temporary password with letters and digits."""
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -131,3 +147,41 @@ async def link_telegram_account(
 ):
     link_telegram(db, current_user.id, payload.telegram_id, payload.telegram_username)
     return {"message": "Telegram linked", "telegram_id": payload.telegram_id}
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(
+    payload: ForgotPasswordRequest, db: Session = Depends(get_db)
+):
+    """Generate a temporary password and email it to the user.
+
+    For privacy we return the same message regardless of whether the email
+    exists in the system, so this endpoint cannot be used for enumeration.
+    """
+    generic_response = ForgotPasswordResponse(
+        message=(
+            "Если такой email зарегистрирован в системе, мы отправили "
+            "на него письмо с временным паролем."
+        )
+    )
+
+    identity = get_identity_by_email(db, payload.email)
+    if not identity:
+        return generic_response
+
+    user = get_user_by_id(db, identity.user_id)
+    if not user or not user.is_active:
+        return generic_response
+
+    new_password = _generate_temp_password()
+    if not reset_password_for_email(db, payload.email, new_password):
+        return generic_response
+
+    subject, plain, html = build_password_reset_email(user.full_name, new_password)
+    ok = await send_email(payload.email, subject, plain, html)
+    if not ok:
+        logger.warning(
+            "Password reset email could not be sent to %s — password was rotated anyway",
+            payload.email,
+        )
+    return generic_response

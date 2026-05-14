@@ -29,6 +29,7 @@ from .models import (
     ResumeFile,
     ResumeParseJob,
     ResumeParseResult,
+    Skill,
 )
 from .schemas import ProfileIn
 from .schemas_resume import ApplyResumeDraftIn
@@ -190,10 +191,20 @@ def apply_resume_draft(
         _audit(db, user_id, resume_file_id, draft_id, "preferences", old_json, "updated")
 
     if payload.skills_mode != "none" and payload.skills:
+        # Фильтруем навыки из резюме по канонической базе (таблица `skills`):
+        # в профиль добавляем только те, чьё нормализованное имя уже есть в базе.
+        # Сравнение регистронезависимое.
+        known_normalized: set[str] = {
+            row[0] for row in db.query(Skill.normalized_name).all() if row[0]
+        }
+        filtered_skills = [
+            s for s in payload.skills
+            if (s.skill_name or "").strip().lower() in known_normalized
+        ]
         if payload.skills_mode == "replace":
             for sid in [ps.id for ps in list_profile_skills(db, user_id)]:
                 delete_profile_skill(db, user_id, sid)
-        for s in payload.skills:
+        for s in filtered_skills:
             add_profile_skill(db, user_id, s)
 
     if payload.work_experience_mode != "none" and payload.work_experience:

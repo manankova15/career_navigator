@@ -39,6 +39,14 @@ export async function getMe(): Promise<MeResponse> {
   return api.get<MeResponse>("/auth/me");
 }
 
+export interface ForgotPasswordResponse {
+  message: string;
+}
+
+export async function forgotPassword(email: string): Promise<ForgotPasswordResponse> {
+  return api.post<ForgotPasswordResponse>("/auth/forgot-password", { email });
+}
+
 export function clearAuth() {
   localStorage.removeItem("access_token");
   localStorage.removeItem("refresh_token");
